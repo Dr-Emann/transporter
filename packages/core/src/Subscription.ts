@@ -2,7 +2,7 @@ import * as Subject from "./Subject.js";
 
 interface Subscription<T> {
   next(value: T): void;
-  subscribe(observer: (value: T) => void): () => void;
+  subscribe(observer: (value: T) => void): { unsubscribe(): void };
   _tag: "Subscription";
 }
 

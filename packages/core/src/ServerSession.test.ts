@@ -444,9 +444,108 @@ test("an error is returned if the wrong message type is received", async () => {
   );
 });
 
-// sending a batch message
+test("sending a batch message", async () => {
+  const { Subscription, APIContract } = DataContract.DataContract();
+  const sub1 = Subscription<string>();
+  const sub2 = Subscription<string>();
+  const session = ServerSession.ServerSession(APIContract({ sub1, sub2 }));
+  const next = mock();
 
-// calling a procedure that throws an error
+  session.messageQueue.subscribe(next);
+
+  const message = await session.sendAwait(
+    Message.Batch({
+      address: "",
+      messages: [
+        Message.Subscribe({
+          address: "",
+          path: ["sub1"],
+          returnAddress: "abc"
+        }),
+        Message.Subscribe({
+          address: "",
+          path: ["sub2"],
+          returnAddress: "xyz"
+        })
+      ],
+      returnAddress: "123"
+    })
+  );
+
+  sub1.next("🤘");
+  sub2.next("💩");
+  session.terminate();
+
+  expect(message).toMatchObject(
+    Message.Batch({
+      address: "123",
+      messages: [
+        Message.Return({
+          address: "abc",
+          value: "ok",
+          returnAddress: ""
+        }),
+        Message.Return({
+          address: "xyz",
+          value: "ok",
+          returnAddress: ""
+        })
+      ],
+      returnAddress: ""
+    })
+  );
+
+  expect(next).toHaveBeenCalledTimes(2);
+
+  expect(next).toHaveBeenCalledWith(
+    Message.Next({
+      address: "abc",
+      path: ["sub1"],
+      value: "🤘",
+      returnAddress: ""
+    })
+  );
+
+  expect(next).toHaveBeenCalledWith(
+    Message.Next({
+      address: "xyz",
+      path: ["sub2"],
+      value: "💩",
+      returnAddress: ""
+    })
+  );
+});
+
+test("an error message is returned if a procedure throws an error", async () => {
+  const { Procedure, APIContract } = DataContract.DataContract();
+
+  const session = ServerSession.ServerSession(
+    APIContract({
+      test: Procedure(async () => {
+        throw "💣";
+      })
+    })
+  );
+
+  const response = await session.sendAwait(
+    Message.Call({
+      address: "",
+      args: [],
+      path: ["test"],
+      returnAddress: "123"
+    })
+  );
+
+  session.terminate();
+
+  expect(response).toMatchObject(
+    Message.Error({
+      address: "123",
+      error: "💣",
+      returnAddress: ""
+    })
+  );
+});
 
 function scheduleTask<R>(callback: () => R = () => undefined as R) {
   return new Promise<R>((resolve) => setTimeout(() => resolve(callback())));
