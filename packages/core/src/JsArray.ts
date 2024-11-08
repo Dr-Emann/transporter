@@ -36,6 +36,8 @@ export type Index<T> = T extends `${number}` ? T : never;
  */
 export type Length<T> = T extends readonly unknown[] ? T["length"] : 0;
 
+export type NonEmpty<T> = [T, ...T[]];
+
 /**
  * Tests if a value is an array. This version provides better type inference
  * than `Array.isArray`.

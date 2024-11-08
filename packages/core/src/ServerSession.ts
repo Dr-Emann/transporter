@@ -1,7 +1,7 @@
 import * as APIContract from "./APIContract.js";
-import * as BehaviorSubject from "./BehaviorSubject.js";
 import * as Injector from "./Injector.js";
 import * as JsFunction from "./JsFunction.js";
+import * as JsArray from "./JsArray.js";
 import * as JsObject from "./JsObject.js";
 import * as Message from "./Message.js";
 import * as Observable from "./Observable/index.js";
@@ -14,11 +14,11 @@ enum State {
 }
 
 type ServerSession<TransferFormat> = {
-  receive: Observable.t<Message.t<TransferFormat>>;
+  messageQueue: Observable.t<Message.t<TransferFormat>>;
   send(message: Message.t<TransferFormat>): void;
   sendAwait(
     message: Message.t<TransferFormat>
-  ): Promise<Message.t<TransferFormat>>;
+  ): Promise<Message.t<TransferFormat>> | Promise<void>;
   state: State;
   stateChange: Observable.t<State>;
   terminate(): void;
@@ -36,9 +36,10 @@ const ServerSession = <TransferFormat>(
     injector?: Injector.t;
   } = {}
 ): ServerSession<TransferFormat> => {
-  const receive = Subject.init<Message.t<TransferFormat>>();
+  const messageQueue = Subject.init<Message.t<TransferFormat>>();
   const subscriptions = new Map<string, Observable.Subscription>();
-  const state = BehaviorSubject.of(State.Active);
+  const stateChange = Subject.init<State>();
+  let state = State.Active;
 
   const callFunction = ({
     args,
@@ -76,7 +77,7 @@ const ServerSession = <TransferFormat>(
   const handleMessage = async (
     message: Message.t<TransferFormat>
   ): Promise<Message.t<TransferFormat>> => {
-    if (state.getValue() === State.Terminated)
+    if (state === State.Terminated)
       return Message.Error({
         address: message.returnAddress,
         error: "session terminated" as TransferFormat,
@@ -97,10 +98,9 @@ const ServerSession = <TransferFormat>(
           address: message.returnAddress,
           messages: (await Promise.all(
             message.messages.map(handleMessage)
-          )) as Exclude<
-            Message.t<TransferFormat>,
-            Message.Batch<TransferFormat>
-          >[],
+          )) as JsArray.NonEmpty<
+            Exclude<Message.t<TransferFormat>, Message.Batch<TransferFormat>>
+          >,
           returnAddress: address
         });
 
@@ -126,7 +126,7 @@ const ServerSession = <TransferFormat>(
 
       case Message.Type.Subscribe:
         createSubscription(message.path, (value) =>
-          receive.next(
+          messageQueue.next(
             Message.Next({
               address: message.returnAddress,
               path: message.path,
@@ -165,31 +165,36 @@ const ServerSession = <TransferFormat>(
 
   const send = (message: Message.t<TransferFormat>) => {
     if (message.address === address)
-      handleMessage(message).then((message) => receive.next(message));
+      handleMessage(message).then((message) => messageQueue.next(message));
   };
 
   const sendAwait = (message: Message.t<TransferFormat>) => {
     return message.address === address
       ? handleMessage(message)
-      : Promise.reject("wrong address");
+      : Promise.resolve();
   };
 
   const terminate = () => {
+    state = State.Terminated;
+
     for (const subscription of subscriptions.values()) {
       subscription.unsubscribe();
     }
 
+    messageQueue.complete();
+    stateChange.next(state);
+    stateChange.complete();
     subscriptions.clear();
   };
 
   return {
-    receive: receive.asObservable(),
+    messageQueue: messageQueue.asObservable(),
     send,
     sendAwait,
     get state() {
-      return state.getValue();
+      return state;
     },
-    stateChange: state.asObservable(),
+    stateChange: stateChange.asObservable(),
     terminate,
     [Symbol.dispose]: terminate,
     _tag: "ServerSession"

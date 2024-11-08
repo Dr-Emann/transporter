@@ -21,8 +21,6 @@ const DataContract = <IO, TransferFormat = IO>(
     TransferFormat
   > = Serializer.identity as Serializer.Serializer<IO, TransferFormat>
 ): DataContract<IO, TransferFormat> => {
-  console.log(serializer);
-
   return {
     APIContract<T>(api: T) {
       return APIContract.APIContract<T, IO, TransferFormat>(api);

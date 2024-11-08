@@ -1,3 +1,4 @@
+import * as JsArray from "./JsArray.js";
 import * as JsObject from "./JsObject.js";
 import * as UUID from "./UUID.js";
 
@@ -83,10 +84,7 @@ type MessageBase = {
 
 export type Batch<IO> = FlattenIntersection<
   MessageBase & {
-    readonly messages: [
-      Exclude<Message<IO>, Batch<IO>>,
-      ...Exclude<Message<IO>, Batch<IO>>[]
-    ];
+    readonly messages: JsArray.NonEmpty<Exclude<Message<IO>, Batch<IO>>>;
     readonly type: Type.Batch;
   }
 >;

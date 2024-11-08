@@ -1,11 +1,13 @@
 import * as Subject from "./Subject.js";
 
-interface Subscription<T> extends Subject.Subject<T> {
+interface Subscription<T> {
+  next(value: T): void;
+  subscribe(observer: (value: T) => void): () => void;
   _tag: "Subscription";
 }
 
 function Subscription<T>(): Subscription<T> {
-  return {} as Subscription<T>;
+  return Subject.init() as unknown as Subscription<T>;
 }
 
 export { Subscription };
