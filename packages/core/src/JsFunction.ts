@@ -3,6 +3,9 @@ export type { JsFunction as t };
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type JsFunction = (...args: any) => any;
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type Async = (...args: any) => Promise<any>;
+
 /**
  * Creates a function who's arguments are both covariant and contravariant.
  *
@@ -33,6 +36,10 @@ export function async<const A extends unknown[], const R>(
   procedure: (...a: A) => R
 ): (...a: A) => Promise<Awaited<R>> {
   return async (...args: A): Promise<Awaited<R>> => await procedure(...args);
+}
+
+export function identity<T>(value: T): T {
+  return value;
 }
 
 /**

@@ -18,6 +18,23 @@ export type Entries<T extends object> = T extends readonly unknown[]
   : Exclude<{ [K in keyof T]: [K, T[K]] }[keyof T], undefined>[];
 
 /**
+ * Given an object and a type, recursively extract values of that type.
+ *
+ * @example
+ *
+ * type Values = ExtractDeep<{ a: { b: "b" }, c: { d: 12 } }, number> // 12
+ */
+export type ExtractDeep<T, U> = T extends U
+  ? T
+  : T extends ReadonlyArray<unknown>
+    ? { [K in JsArray.Index<keyof T>]: ExtractDeep<T[K], U> }[JsArray.Index<
+        keyof T
+      >]
+    : T extends object
+      ? { [K in keyof T]: ExtractDeep<T[K], U> }[keyof T]
+      : never;
+
+/**
  * Given an object and a type, recursively pick properties of that type. If no
  * properties of that type exist an empty object is produced.
  *

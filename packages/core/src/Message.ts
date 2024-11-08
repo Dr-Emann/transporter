@@ -27,16 +27,19 @@ export const protocol = "transporter";
  * or minor version of Transporter as long as its servers and clients are using
  * a compatible version.
  */
-export const version: Version = "1.0.0";
+export const version: Version = "1.1.0";
 
 /**
  * Transporter may send messages with any of these types.
  */
 export enum Type {
+  Batch = "Batch",
   Call = "Call",
   Error = "Error",
-  GarbageCollect = "GarbageCollect",
-  Set = "Set"
+  Next = "Next",
+  Return = "Return",
+  Subscribe = "Subscribe",
+  Unsubscribe = "Unsubscribe"
 }
 
 /**
@@ -51,11 +54,14 @@ export type Version = `${number}.${number}.${number}`;
  * considered internal, it is ok to intercept these messages and perform your
  * own encoding on them. By doing so you can create your own protocol stack.
  */
-export type Message<Value = unknown> =
-  | CallFunction<Value[]>
-  | Error<Value>
-  | GarbageCollect
-  | SetValue<Value>;
+export type Message<IO = unknown> =
+  | Batch<IO>
+  | Call<IO[]>
+  | Error<IO>
+  | Next<IO>
+  | Return<IO>
+  | Subscribe
+  | Unsubscribe;
 
 export type { Message as t };
 
@@ -69,17 +75,49 @@ export type { Message as t };
  */
 type MessageBase = {
   readonly address: string;
-  readonly id: string;
   readonly protocol: typeof protocol;
+  readonly returnAddress: string;
   readonly type: Type;
   readonly version: Version;
 };
 
-export type CallFunction<Args> = FlattenIntersection<
+export type Batch<IO> = FlattenIntersection<
   MessageBase & {
-    readonly args: Args;
+    readonly messages: [
+      Exclude<Message<IO>, Batch<IO>>,
+      ...Exclude<Message<IO>, Batch<IO>>[]
+    ];
+    readonly type: Type.Batch;
+  }
+>;
+
+/**
+ *
+ */
+export const Batch = <IO>({
+  address,
+  messages,
+  returnAddress = UUID.v4()
+}: {
+  address: string;
+  messages: [
+    Exclude<Message<IO>, Batch<IO>>,
+    ...Exclude<Message<IO>, Batch<IO>>[]
+  ];
+  returnAddress?: string;
+}): Batch<IO> => ({
+  address,
+  messages,
+  protocol,
+  returnAddress,
+  type: Type.Batch,
+  version
+});
+
+export type Call<IO> = FlattenIntersection<
+  MessageBase & {
+    readonly args: IO;
     readonly path: string[];
-    readonly noReply: boolean;
     readonly type: Type.Call;
   }
 >;
@@ -87,25 +125,22 @@ export type CallFunction<Args> = FlattenIntersection<
 /**
  * Creates a message to call a remote function.
  */
-export const CallFunction = <Args>({
+export const Call = <IO>({
   address,
   args,
-  id = UUID.v4(),
-  noReply = false,
-  path
+  path,
+  returnAddress = UUID.v4()
 }: {
   address: string;
-  args: Args;
-  id?: string;
-  noReply?: boolean;
+  args: IO;
   path: string[];
-}): CallFunction<Args> => ({
+  returnAddress?: string;
+}): Call<IO> => ({
   address,
   args,
-  id,
-  noReply,
   path,
   protocol,
+  returnAddress,
   type: Type.Call,
   version
 });
@@ -123,77 +158,139 @@ export type Error<Error> = FlattenIntersection<
 export const Error = <T>({
   address,
   error,
-  id = UUID.v4()
+  returnAddress = UUID.v4()
 }: {
   address: string;
   error: T;
-  id?: string;
+  returnAddress?: string;
 }): Error<T> => ({
   address,
   error,
-  id,
   protocol,
+  returnAddress,
   type: Type.Error,
   version
 });
 
-export type GarbageCollect = FlattenIntersection<
+export type Next<IO> = FlattenIntersection<
   MessageBase & {
-    readonly type: Type.GarbageCollect;
+    readonly path: string[];
+    readonly type: Type.Next;
+    readonly value: IO;
   }
 >;
 
 /**
- * Sent by a client to a server when a proxy is disposed.
+ *
  */
-export const GarbageCollect = ({
+export const Next = <IO>({
   address,
-  id = UUID.v4()
-}: {
-  address: string;
-  id?: string;
-}): GarbageCollect => ({
-  address,
-  id,
-  protocol,
-  type: Type.GarbageCollect,
-  version
-});
-
-export type SetValue<Value> = FlattenIntersection<
-  MessageBase & {
-    readonly type: Type.Set;
-    readonly value: Value;
-  }
->;
-
-/**
- * The server responds with a Set message if calling a function is successful.
- */
-export const SetValue = <T>({
-  address,
-  id = UUID.v4(),
+  path,
+  returnAddress = UUID.v4(),
   value
 }: {
   address: string;
-  id?: string;
-  urn?: string;
-  value: T;
-}): SetValue<T> => ({
+  path: string[];
+  returnAddress?: string;
+  value: IO;
+}): Next<IO> => ({
   address,
-  id,
   protocol,
-  type: Type.Set,
+  path,
+  returnAddress,
+  type: Type.Next,
   value,
+  version
+});
+
+export type Return<IO> = FlattenIntersection<
+  MessageBase & {
+    readonly type: Type.Return;
+    readonly value: IO;
+  }
+>;
+
+/**
+ *
+ */
+export const Return = <IO>({
+  address,
+  returnAddress = UUID.v4(),
+  value
+}: {
+  address: string;
+  returnAddress?: string;
+  value: IO;
+}): Return<IO> => ({
+  address,
+  protocol,
+  returnAddress,
+  type: Type.Return,
+  value,
+  version
+});
+
+export type Subscribe = FlattenIntersection<
+  MessageBase & {
+    readonly path: string[];
+    readonly type: Type.Subscribe;
+  }
+>;
+
+/**
+ *
+ */
+export const Subscribe = ({
+  address,
+  path,
+  returnAddress = UUID.v4()
+}: {
+  address: string;
+  noReply?: boolean;
+  path: string[];
+  returnAddress?: string;
+}): Subscribe => ({
+  address,
+  path,
+  protocol,
+  returnAddress,
+  type: Type.Subscribe,
+  version
+});
+
+export type Unsubscribe = FlattenIntersection<
+  MessageBase & {
+    readonly path: string[];
+    readonly type: Type.Unsubscribe;
+  }
+>;
+
+/**
+ *
+ */
+export const Unsubscribe = ({
+  address,
+  path,
+  returnAddress = UUID.v4()
+}: {
+  address: string;
+  path: string[];
+  returnAddress?: string;
+}): Unsubscribe => ({
+  address,
+  path,
+  protocol,
+  returnAddress,
+  type: Type.Unsubscribe,
   version
 });
 
 /**
  * Returns `true` if the message is a Transporter message.
  */
-export function isMessage<T, Value>(
-  message: T | Message<Value>
-): message is Message<Value> {
+export function isMessage<T, IO>(
+  message: T | Message<IO>
+): message is Message<IO> {
   return (
     JsObject.isObject(message) &&
     JsObject.has(message, "protocol") &&
