@@ -1,6 +1,7 @@
 import * as JsFunction from "./JsFunction.js";
 import * as JsObject from "./JsObject.js";
 import * as Procedure from "./Procedure.js";
+import * as Serializer from "./Serializer.js";
 import * as Subscription from "./Subscription.js";
 
 type RestrictIO<T, IO> = {
@@ -44,12 +45,23 @@ type Opaque<T> = JsObject.PickDeep<
 
 type APIContract<T, IO, TransferFormat> = {
   api: Opaque<T>;
+  serializer: Serializer.Serializer<IO, TransferFormat>;
   _tag: "APIContract";
 };
 
-const APIContract = <T, IO, TransferFormat>(api: T) => {
+// Serializer should be required if IO does not extend TransferFormat
+const APIContract = <T, IO, TransferFormat>(
+  api: T,
+  {
+    serializer = Serializer.identity as Serializer.Serializer<
+      IO,
+      TransferFormat
+    >
+  }: { serializer: Serializer.Serializer<IO, TransferFormat> }
+) => {
   return {
     api: api as Opaque<T>,
+    serializer,
     _tag: "APIContract"
   } satisfies APIContract<T, IO, TransferFormat>;
 };

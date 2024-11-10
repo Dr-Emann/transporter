@@ -6,9 +6,9 @@ const identity = {
   deserialize: JsFunction.identity
 };
 
-type Serializer<IO = unknown, TransferFormat = IO> = {
-  deserialize(value: TransferFormat): Message.t<IO>;
-  serialize(value: Message.t<IO>): TransferFormat;
+type Serializer<IO extends Message.t<never>, TransferFormat = IO> = {
+  deserialize(value: TransferFormat): IO;
+  serialize(value: IO): TransferFormat;
 };
 
 export { type Serializer, identity };

@@ -23,7 +23,9 @@ const DataContract = <IO, TransferFormat = IO>(
 ): DataContract<IO, TransferFormat> => {
   return {
     APIContract<T>(api: T) {
-      return APIContract.APIContract<T, IO, TransferFormat>(api);
+      return APIContract.APIContract<T, IO, TransferFormat>(api, {
+        serializer
+      });
     },
     Procedure(procedure) {
       return Procedure.Procedure(procedure);

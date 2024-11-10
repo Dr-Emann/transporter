@@ -78,6 +78,7 @@ type MessageBase = {
   readonly address: string;
   readonly protocol: typeof protocol;
   readonly returnAddress: string;
+  readonly traceId: string;
   readonly type: Type;
   readonly version: Version;
 };
@@ -95,19 +96,22 @@ export type Batch<IO> = FlattenIntersection<
 export const Batch = <IO>({
   address,
   messages,
-  returnAddress = UUID.v4()
+  returnAddress,
+  traceId = UUID.v4()
 }: {
   address: string;
   messages: [
     Exclude<Message<IO>, Batch<IO>>,
     ...Exclude<Message<IO>, Batch<IO>>[]
   ];
-  returnAddress?: string;
+  returnAddress: string;
+  traceId?: string;
 }): Batch<IO> => ({
   address,
   messages,
   protocol,
   returnAddress,
+  traceId,
   type: Type.Batch,
   version
 });
@@ -127,18 +131,21 @@ export const Call = <IO>({
   address,
   args,
   path,
-  returnAddress = UUID.v4()
+  returnAddress,
+  traceId = UUID.v4()
 }: {
   address: string;
   args: IO;
   path: string[];
-  returnAddress?: string;
+  returnAddress: string;
+  traceId?: string;
 }): Call<IO> => ({
   address,
   args,
   path,
   protocol,
   returnAddress,
+  traceId,
   type: Type.Call,
   version
 });
@@ -156,23 +163,26 @@ export type Error<Error> = FlattenIntersection<
 export const Error = <T>({
   address,
   error,
-  returnAddress = UUID.v4()
+  returnAddress,
+  traceId = UUID.v4()
 }: {
   address: string;
   error: T;
-  returnAddress?: string;
+  returnAddress: string;
+  traceId?: string;
 }): Error<T> => ({
   address,
   error,
   protocol,
   returnAddress,
+  traceId,
   type: Type.Error,
   version
 });
 
 export type Next<IO> = FlattenIntersection<
   MessageBase & {
-    readonly path: string[];
+    readonly subscriptionId: string;
     readonly type: Type.Next;
     readonly value: IO;
   }
@@ -183,20 +193,23 @@ export type Next<IO> = FlattenIntersection<
  */
 export const Next = <IO>({
   address,
-  path,
-  returnAddress = UUID.v4(),
+  returnAddress,
+  subscriptionId,
+  traceId = UUID.v4(),
   value
 }: {
   address: string;
-  path: string[];
-  returnAddress?: string;
+  returnAddress: string;
+  subscriptionId: string;
+  traceId?: string;
   value: IO;
 }): Next<IO> => ({
   address,
   protocol,
-  path,
   returnAddress,
+  subscriptionId,
   type: Type.Next,
+  traceId,
   value,
   version
 });
@@ -213,16 +226,19 @@ export type Return<IO> = FlattenIntersection<
  */
 export const Return = <IO>({
   address,
-  returnAddress = UUID.v4(),
+  returnAddress,
+  traceId = UUID.v4(),
   value
 }: {
   address: string;
-  returnAddress?: string;
+  returnAddress: string;
+  traceId?: string;
   value: IO;
 }): Return<IO> => ({
   address,
   protocol,
   returnAddress,
+  traceId,
   type: Type.Return,
   value,
   version
@@ -231,6 +247,7 @@ export const Return = <IO>({
 export type Subscribe = FlattenIntersection<
   MessageBase & {
     readonly path: string[];
+    readonly traceId: string;
     readonly type: Type.Subscribe;
   }
 >;
@@ -241,24 +258,26 @@ export type Subscribe = FlattenIntersection<
 export const Subscribe = ({
   address,
   path,
-  returnAddress = UUID.v4()
+  returnAddress,
+  traceId = UUID.v4()
 }: {
   address: string;
-  noReply?: boolean;
   path: string[];
-  returnAddress?: string;
+  returnAddress: string;
+  traceId?: string;
 }): Subscribe => ({
   address,
   path,
   protocol,
   returnAddress,
+  traceId,
   type: Type.Subscribe,
   version
 });
 
 export type Unsubscribe = FlattenIntersection<
   MessageBase & {
-    readonly path: string[];
+    readonly subscriptionId: string;
     readonly type: Type.Unsubscribe;
   }
 >;
@@ -268,17 +287,20 @@ export type Unsubscribe = FlattenIntersection<
  */
 export const Unsubscribe = ({
   address,
-  path,
-  returnAddress = UUID.v4()
+  returnAddress,
+  traceId = UUID.v4(),
+  subscriptionId
 }: {
   address: string;
-  path: string[];
-  returnAddress?: string;
+  returnAddress: string;
+  subscriptionId: string;
+  traceId?: string;
 }): Unsubscribe => ({
   address,
-  path,
   protocol,
   returnAddress,
+  subscriptionId,
+  traceId,
   type: Type.Unsubscribe,
   version
 });

@@ -1,4 +1,3 @@
-import * as BehaviorSubject from "./BehaviorSubject.js";
 import * as Observable from "./Observable/Observable.js";
 
 /**
@@ -37,7 +36,8 @@ interface ConnectionlessTransport<TransferFormat>
 
 interface ConnectionOrientedTransport<TransferFormat>
   extends Transport<TransferFormat, ConnectionMode.ConnectionOriented> {
-  connectionState: BehaviorSubject.t<ConnectionState>;
+  connectionState: ConnectionState;
+  connectionStateChange: Observable.t<ConnectionState>;
   _tag: "ConnectionOrientedTransport";
 }
 

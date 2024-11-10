@@ -14,11 +14,9 @@ enum State {
 }
 
 type ServerSession<TransferFormat> = {
-  messageQueue: Observable.t<Message.t<TransferFormat>>;
-  send(message: Message.t<TransferFormat>): void;
-  sendAwait(
-    message: Message.t<TransferFormat>
-  ): Promise<Message.t<TransferFormat>> | Promise<void>;
+  messageQueue: Observable.t<TransferFormat>;
+  send(message: TransferFormat): void;
+  sendAwait(message: TransferFormat): Promise<TransferFormat> | Promise<void>;
   state: State;
   stateChange: Observable.t<State>;
   terminate(): void;
@@ -36,8 +34,8 @@ const ServerSession = <TransferFormat>(
     injector?: Injector.t;
   } = {}
 ): ServerSession<TransferFormat> => {
-  const messageQueue = Subject.init<Message.t<TransferFormat>>();
-  const subscriptions = new Map<string, Observable.Subscription>();
+  const messageQueue = Subject.init<TransferFormat>();
+  const subscriptions = new Map<string, Map<string, Observable.Subscription>>();
   const stateChange = Subject.init<State>();
   let state = State.Active;
 
@@ -45,7 +43,7 @@ const ServerSession = <TransferFormat>(
     args,
     path
   }: {
-    args: TransferFormat[];
+    args: unknown[];
     path: string[];
   }): Promise<TransferFormat> => {
     const getDependencies = (func: JsFunction.t) =>
@@ -61,34 +59,43 @@ const ServerSession = <TransferFormat>(
   };
 
   const createSubscription = (
+    clientAddress: string,
     path: string[],
     observer: (next: TransferFormat) => void
   ) => {
-    if (subscriptions.has(path.join("."))) return;
+    const clientSubscriptions = subscriptions.get(clientAddress) ?? new Map();
+    const subscriptionId = path.join(".");
+
+    if (clientSubscriptions.get(subscriptionId)) return subscriptionId;
 
     const observable = JsObject.getIn(
       contract.api,
       path
     ) as Observable.t<TransferFormat>;
 
-    subscriptions.set(path.join("."), observable.subscribe(observer));
+    clientSubscriptions.set(subscriptionId, observable.subscribe(observer));
+    subscriptions.set(clientAddress, clientSubscriptions);
+
+    return subscriptionId;
   };
 
   const handleMessage = async (
-    message: Message.t<TransferFormat>
-  ): Promise<Message.t<TransferFormat>> => {
+    message: Message.t<unknown>
+  ): Promise<Message.t<unknown>> => {
     if (state === State.Terminated)
       return Message.Error({
         address: message.returnAddress,
         error: "session terminated" as TransferFormat,
-        returnAddress: address
+        returnAddress: address,
+        traceId: message.traceId
       });
 
     if (!Message.isCompatible(message.version)) {
       return Message.Error({
         address: message.returnAddress,
         error: "incompatible version" as TransferFormat,
-        returnAddress: address
+        returnAddress: address,
+        traceId: message.traceId
       });
     }
 
@@ -101,7 +108,8 @@ const ServerSession = <TransferFormat>(
           )) as JsArray.NonEmpty<
             Exclude<Message.t<TransferFormat>, Message.Batch<TransferFormat>>
           >,
-          returnAddress: address
+          returnAddress: address,
+          traceId: message.traceId
         });
 
       case Message.Type.Call:
@@ -114,42 +122,54 @@ const ServerSession = <TransferFormat>(
           return Message.Return({
             address: message.returnAddress,
             returnAddress: address,
+            traceId: message.traceId,
             value
           });
         } catch (error) {
           return Message.Error({
             address: message.returnAddress,
+            error: error as TransferFormat,
             returnAddress: address,
-            error: error as TransferFormat
+            traceId: message.traceId
           });
         }
 
-      case Message.Type.Subscribe:
-        createSubscription(message.path, (value) =>
-          messageQueue.next(
-            Message.Next({
-              address: message.returnAddress,
-              path: message.path,
-              returnAddress: address,
-              value
-            })
-          )
+      case Message.Type.Subscribe: {
+        const subscriptionId = createSubscription(
+          message.returnAddress,
+          message.path,
+          (value) =>
+            messageQueue.next(
+              contract.serializer.serialize(
+                Message.Next({
+                  address: message.returnAddress,
+                  returnAddress: address,
+                  subscriptionId,
+                  value
+                })
+              )
+            )
         );
 
         return Message.Return({
           address: message.returnAddress,
           returnAddress: address,
-          value: "ok" as TransferFormat
+          traceId: message.traceId,
+          value: subscriptionId as TransferFormat
         });
+      }
 
       case Message.Type.Unsubscribe: {
-        const subscription = subscriptions.get(message.path.join("."));
+        const clientSubscriptions = subscriptions.get(message.returnAddress);
+        const subscription = clientSubscriptions?.get(message.subscriptionId);
+
         subscription?.unsubscribe();
-        subscriptions.delete(message.path.join("."));
+        clientSubscriptions?.delete(message.subscriptionId);
 
         return Message.Return({
           address: message.returnAddress,
           returnAddress: address,
+          traceId: message.traceId,
           value: "ok" as TransferFormat
         });
       }
@@ -158,27 +178,39 @@ const ServerSession = <TransferFormat>(
         return Message.Error({
           address: message.returnAddress,
           error: "invalid message" as TransferFormat,
-          returnAddress: address
+          returnAddress: address,
+          traceId: message.traceId
         });
     }
   };
 
-  const send = (message: Message.t<TransferFormat>) => {
-    if (message.address === address)
-      handleMessage(message).then((message) => messageQueue.next(message));
+  const send = (message: TransferFormat) => {
+    const value = contract.serializer.deserialize(message);
+
+    if (Message.isMessage(value) && value.address === address)
+      handleMessage(value).then((message) =>
+        messageQueue.next(contract.serializer.serialize(message))
+      );
   };
 
-  const sendAwait = (message: Message.t<TransferFormat>) => {
-    return message.address === address
-      ? handleMessage(message)
-      : Promise.resolve();
+  const sendAwait = (message: TransferFormat) => {
+    const value = contract.serializer.deserialize(message);
+
+    if (Message.isMessage(value) && value.address === address)
+      return handleMessage(value).then((message) =>
+        contract.serializer.serialize(message)
+      );
+
+    return Promise.resolve();
   };
 
   const terminate = () => {
     state = State.Terminated;
 
-    for (const subscription of subscriptions.values()) {
-      subscription.unsubscribe();
+    for (const clientSubscriptions of subscriptions.values()) {
+      for (const subscription of clientSubscriptions.values()) {
+        subscription.unsubscribe();
+      }
     }
 
     messageQueue.complete();

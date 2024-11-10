@@ -8,6 +8,7 @@ import * as Observable from "./Observable/index.js";
 import * as Procedure from "./Procedure.js";
 import * as Serializer from "./Serializer.js";
 import * as Transport from "./Transport.js";
+import * as UUID from "./UUID.js";
 
 type Client<
   Contract,
@@ -55,29 +56,38 @@ const Client = <
   serverAddress = "",
   transport
 }: ClientOptions<Contract, ConnectionMode>) => {
-  const observers = new Map<string, JsFunction.t[]>();
+  const address = UUID.v4();
+  const subscriptions = new Map<
+    string,
+    { path: string[]; observers: JsFunction.t[] }
+  >();
 
   if (transport.mode === Transport.ConnectionMode.ConnectionOriented) {
-    const connected = transport.connectionState.pipe(
+    const connected = transport.connectionStateChange.pipe(
       Observable.filter(
         (state) => state === Transport.ConnectionState.Connected
       )
     );
 
     connected.subscribe(() => {
-      const messages = Object.entries(observers)
-        .filter(([, observers]) => Boolean(observers.length))
-        .map(([key]) =>
+      const messages = [...subscriptions.entries()]
+        .filter(([, { observers }]) => observers.length > 0)
+        .map(([, { path }]) =>
           Message.Subscribe({
             address: serverAddress,
-            path: key.split(".")
+            path,
+            returnAddress: address
           })
         );
 
       if (messages.length > 0) {
         transport.send(
           serializer.serialize(
-            Message.Batch({ address: serverAddress, messages })
+            Message.Batch({
+              address: serverAddress,
+              messages,
+              returnAddress: address
+            })
           )
         );
       }
@@ -88,6 +98,7 @@ const Client = <
     .pipe(
       Observable.map((message) => serializer.deserialize(message)),
       Observable.filter(Message.isMessage),
+      Observable.filter((message) => message.address === address),
       Observable.flatMap((message) => {
         switch (message.type) {
           case Message.Type.Batch:
@@ -99,16 +110,20 @@ const Client = <
       Observable.filter((message) => message.type === Message.Type.Next)
     )
     .subscribe((message) => {
-      observers
-        .get(message.path.join("."))
-        ?.forEach((observer) => observer(message.value));
+      const subscription = subscriptions.get(message.subscriptionId);
+      subscription?.observers.forEach((observer) => observer(message.value));
     });
 
-  const awaitResponse = (message: Message.Call<unknown[]>) => {
+  const awaitResponse = (
+    message: Message.Call<unknown[]> | Message.Subscribe
+  ) => {
+    const { traceId } = message;
+
     const promise = transport.receive.pipe(
-      Observable.map((message) => serializer.deserialize(message)),
+      Observable.map((value) => serializer.deserialize(value)),
       Observable.filter(Message.isMessage),
-      Observable.filter(({ address }) => address === message.returnAddress),
+      Observable.filter((message) => message.address === address),
+      Observable.filter((message) => message.traceId === traceId),
       Observable.flatMap((reply) => {
         switch (reply.type) {
           case Message.Type.Error:
@@ -138,39 +153,52 @@ const Client = <
     const proxy = new Proxy(() => {}, {
       apply: (_target, _thisArg, args) => {
         if (path.at(-1) === "subscribe" && JsFunction.isFunction(args[0])) {
-          const p = path.slice(0, -1);
-          const key = p.join(".");
           const [observer] = args;
+          const p = path.slice(0, -1);
 
           const message = Message.Subscribe({
             address: serverAddress,
-            path: p
+            path: p,
+            returnAddress: address
           });
 
-          observers.set(key, [...(observers.get(key) ?? []), observer]);
-          transport.send(serializer.serialize(message));
+          return awaitResponse(message).then((subscriptionId) => {
+            const id = subscriptionId as string;
+            const observers = subscriptions.get(id)?.observers ?? [];
 
-          return () => {
-            const o = observers.get(key)?.filter((o) => o !== observer) ?? [];
-            observers.set(key, o);
+            subscriptions.set(id, {
+              path: p,
+              observers: [...observers, observer]
+            });
 
-            if (!o.length) {
-              transport.send(
-                serializer.serialize(
-                  Message.Unsubscribe({
-                    address: serverAddress,
-                    path: p
-                  })
-                )
-              );
-            }
-          };
+            return () => {
+              const observers =
+                subscriptions
+                  .get(id)
+                  ?.observers.filter((o) => o !== observer) ?? [];
+
+              subscriptions.set(id, { path: p, observers });
+
+              if (!observers.length) {
+                transport.send(
+                  serializer.serialize(
+                    Message.Unsubscribe({
+                      address: serverAddress,
+                      returnAddress: address,
+                      subscriptionId: id
+                    })
+                  )
+                );
+              }
+            };
+          });
         }
 
         const message = Message.Call({
           address: serverAddress,
           args,
-          path
+          path,
+          returnAddress: address
         });
 
         return awaitResponse(message);

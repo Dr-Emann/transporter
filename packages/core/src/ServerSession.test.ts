@@ -70,6 +70,7 @@ test("sending a message to call a procedure calls the procedure and returns a me
     Message.Return({
       address: "123",
       returnAddress: "",
+      traceId: expect.any(String),
       value: "👍"
     })
   );
@@ -130,6 +131,7 @@ test("sending a message without awaiting the response pushes the message onto th
     Message.Return({
       address: "123",
       returnAddress: "",
+      traceId: expect.any(String),
       value: "👍"
     })
   );
@@ -158,8 +160,9 @@ test("subscribing to a subscription puts a Next message on the messageQueue when
   expect(next).toHaveBeenCalledWith(
     Message.Next({
       address: "123",
-      path: ["test"],
       returnAddress: "",
+      subscriptionId: expect.any(String),
+      traceId: expect.any(String),
       value: "🤘"
     })
   );
@@ -230,20 +233,20 @@ test("unsubscribing terminates the subscription", async () => {
 
   session.messageQueue.subscribe(next);
 
-  await session.sendAwait(
+  const reply = (await session.sendAwait(
     Message.Subscribe({
       address: "",
       path: ["test"],
       returnAddress: "123"
     })
-  );
+  )) as Message.Return<string>;
 
   test.next("🤘");
 
   await session.sendAwait(
     Message.Unsubscribe({
       address: "",
-      path: ["test"],
+      subscriptionId: reply.value,
       returnAddress: "123"
     })
   );
@@ -319,6 +322,7 @@ test("giving a session an explicit address", async () => {
     Message.Return({
       address: "321",
       returnAddress: "123",
+      traceId: expect.any(String),
       value: "👍"
     })
   );
@@ -380,7 +384,8 @@ test("an error is returned if the message version is incompatible", async () => 
     Message.Error({
       address: "123",
       error: "incompatible version",
-      returnAddress: ""
+      returnAddress: "",
+      traceId: expect.any(String)
     })
   );
 });
@@ -411,7 +416,8 @@ test("an error is returned if the session is terminated", async () => {
     Message.Error({
       address: "123",
       error: "session terminated",
-      returnAddress: ""
+      returnAddress: "",
+      traceId: expect.any(String)
     })
   );
 });
@@ -439,7 +445,8 @@ test("an error is returned if the wrong message type is received", async () => {
     Message.Error({
       address: "123",
       error: "invalid message",
-      returnAddress: ""
+      returnAddress: "",
+      traceId: expect.any(String)
     })
   );
 });
@@ -482,16 +489,19 @@ test("sending a batch message", async () => {
       messages: [
         Message.Return({
           address: "abc",
-          value: "ok",
-          returnAddress: ""
+          value: expect.any(String),
+          returnAddress: "",
+          traceId: expect.any(String)
         }),
         Message.Return({
           address: "xyz",
-          value: "ok",
-          returnAddress: ""
+          value: expect.any(String),
+          returnAddress: "",
+          traceId: expect.any(String)
         })
       ],
-      returnAddress: ""
+      returnAddress: "",
+      traceId: expect.any(String)
     })
   );
 
@@ -500,7 +510,8 @@ test("sending a batch message", async () => {
   expect(next).toHaveBeenCalledWith(
     Message.Next({
       address: "abc",
-      path: ["sub1"],
+      subscriptionId: expect.any(String),
+      traceId: expect.any(String),
       value: "🤘",
       returnAddress: ""
     })
@@ -509,7 +520,8 @@ test("sending a batch message", async () => {
   expect(next).toHaveBeenCalledWith(
     Message.Next({
       address: "xyz",
-      path: ["sub2"],
+      subscriptionId: expect.any(String),
+      traceId: expect.any(String),
       value: "💩",
       returnAddress: ""
     })
@@ -542,7 +554,8 @@ test("an error message is returned if a procedure throws an error", async () => 
     Message.Error({
       address: "123",
       error: "💣",
-      returnAddress: ""
+      returnAddress: "",
+      traceId: expect.any(String)
     })
   );
 });
