@@ -6,7 +6,13 @@ import * as Subscription from "./Subscription.js";
 
 type RestrictIO<T, IO> = {
   [K in keyof T]: T[K] extends Subscription.Subscription<any>
-    ? Subscription.Subscription<IO>
+    ? Subscription.Subscription<
+        JsFunction.Bivariant<
+          (...args: [...IO[], Subscription.Observer<IO>]) => Promise<{
+            unsubscribe: Subscription.Unsubscribe;
+          }>
+        >
+      >
     : T[K] extends Procedure.Procedure<any>
       ? Procedure.Procedure<
           JsFunction.Bivariant<(...input: IO[]) => Promise<IO>>

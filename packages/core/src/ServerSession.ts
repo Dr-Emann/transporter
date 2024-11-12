@@ -7,11 +7,61 @@ import * as Message from "./Message.js";
 import * as Observable from "./Observable/index.js";
 import * as Procedure from "./Procedure.js";
 import * as Subject from "./Subject.js";
+import * as Subscription from "./Subscription.js";
+import * as UUID from "./UUID.js";
 
 enum State {
   Active = "Active",
   Terminated = "Terminated"
 }
+
+type IncompatibleMessageError = {
+  message: string;
+  type: "IncompatibleMessageError";
+};
+
+const IncompatibleMessageError = (
+  version: string
+): IncompatibleMessageError => ({
+  message: `Message with version ${version} is not compatible with version ${Message.version}.`,
+  type: "IncompatibleMessageError"
+});
+
+type InvalidMessageError = {
+  message: string;
+  type: "InvalidMessageError";
+};
+
+const InvalidMessageError = (type: string): InvalidMessageError => ({
+  message: `Message with type ${type} is invalid.`,
+  type: "InvalidMessageError"
+});
+
+type SessionTerminatedError = {
+  message: string;
+  type: "SessionTerminatedError";
+};
+
+const SessionTerminatedError = (): SessionTerminatedError => ({
+  message: "The session is terminated.",
+  type: "SessionTerminatedError"
+});
+
+type TypeError = {
+  message: string;
+  type: "TypeError";
+};
+
+const TypeError = (message: string): TypeError => ({
+  message,
+  type: "TypeError"
+});
+
+type Error =
+  | IncompatibleMessageError
+  | InvalidMessageError
+  | SessionTerminatedError
+  | TypeError;
 
 type ServerSession<TransferFormat> = {
   messageQueue: Observable.t<TransferFormat>;
@@ -19,8 +69,8 @@ type ServerSession<TransferFormat> = {
   sendAwait(message: TransferFormat): Promise<TransferFormat> | Promise<void>;
   state: State;
   stateChange: Observable.t<State>;
-  terminate(): void;
-  [Symbol.dispose](): void;
+  terminate(): Promise<void>;
+  [Symbol.asyncDispose](): Promise<void>;
   _tag: "ServerSession";
 };
 
@@ -35,9 +85,15 @@ const ServerSession = <TransferFormat>(
   } = {}
 ): ServerSession<TransferFormat> => {
   const messageQueue = Subject.init<TransferFormat>();
-  const subscriptions = new Map<string, Map<string, Observable.Subscription>>();
+  const subscriptions = new Map<
+    string,
+    { unsubscribe: Subscription.Unsubscribe }
+  >();
   const stateChange = Subject.init<State>();
   let state = State.Active;
+
+  const getDependencies = (func: JsFunction.t) =>
+    Injector.getTags(func).map((tag) => injector?.get(tag)) ?? [];
 
   const callFunction = ({
     args,
@@ -46,37 +102,40 @@ const ServerSession = <TransferFormat>(
     args: unknown[];
     path: string[];
   }): Promise<TransferFormat> => {
-    const getDependencies = (func: JsFunction.t) =>
-      Injector.getTags(func).map((tag) => injector?.get(tag)) ?? [];
+    const procedure = JsObject.getIn(contract.api, path);
 
-    const procedure = JsObject.getIn(
-      contract.api,
-      path
-    ) as Procedure.Procedure<JsFunction.Async>;
+    if (!Procedure.isProcedure(procedure))
+      return Promise.reject(
+        TypeError(`The value at path '${path.join(".")}' is not a procedure.`)
+      );
 
     const dependencies = getDependencies(procedure.call);
     return procedure.call(...dependencies, ...args);
   };
 
   const createSubscription = (
-    clientAddress: string,
+    args: unknown[],
     path: string[],
-    observer: (next: TransferFormat) => void
+    observer: Subscription.Observer<unknown>
   ) => {
-    const clientSubscriptions = subscriptions.get(clientAddress) ?? new Map();
-    const subscriptionId = path.join(".");
+    const subscription = JsObject.getIn(contract.api, path);
 
-    if (clientSubscriptions.get(subscriptionId)) return subscriptionId;
+    if (!Subscription.isSubscription(subscription))
+      return Promise.reject(
+        TypeError(
+          `The value at path '${path.join(".")}' is not a subscription.`
+        )
+      );
 
-    const observable = JsObject.getIn(
-      contract.api,
-      path
-    ) as Observable.t<TransferFormat>;
+    const dependencies = getDependencies(subscription.subscribe);
 
-    clientSubscriptions.set(subscriptionId, observable.subscribe(observer));
-    subscriptions.set(clientAddress, clientSubscriptions);
-
-    return subscriptionId;
+    return subscription
+      .subscribe(...dependencies, ...args, observer)
+      .then((subscription) => {
+        const subscriptionId = UUID.v4();
+        subscriptions.set(subscriptionId, subscription);
+        return subscriptionId;
+      });
   };
 
   const handleMessage = async (
@@ -85,7 +144,7 @@ const ServerSession = <TransferFormat>(
     if (state === State.Terminated)
       return Message.Error({
         address: message.returnAddress,
-        error: "session terminated" as TransferFormat,
+        error: SessionTerminatedError() as TransferFormat,
         returnAddress: address,
         traceId: message.traceId
       });
@@ -93,7 +152,7 @@ const ServerSession = <TransferFormat>(
     if (!Message.isCompatible(message.version)) {
       return Message.Error({
         address: message.returnAddress,
-        error: "incompatible version" as TransferFormat,
+        error: IncompatibleMessageError(message.version) as TransferFormat,
         returnAddress: address,
         traceId: message.traceId
       });
@@ -135,49 +194,108 @@ const ServerSession = <TransferFormat>(
         }
 
       case Message.Type.Subscribe: {
-        const subscriptionId = createSubscription(
-          message.returnAddress,
-          message.path,
-          (value) =>
-            messageQueue.next(
-              contract.serializer.serialize(
-                Message.Next({
-                  address: message.returnAddress,
-                  returnAddress: address,
-                  subscriptionId,
-                  value
-                })
+        let subscribeController!: {
+          resolve(value: string | PromiseLike<string>): void;
+          reject(reason?: unknown): void;
+        };
+
+        const subscribePromise = new Promise<string>((resolve, reject) => {
+          subscribeController = { resolve, reject };
+        });
+
+        const messagePromise = subscribePromise
+          .then((subscriptionId) =>
+            Message.Subscribed({
+              address: message.returnAddress,
+              returnAddress: address,
+              subscriptionId,
+              traceId: message.traceId
+            })
+          )
+          .catch((error) =>
+            Message.Error({
+              address: message.returnAddress,
+              error: error as TransferFormat,
+              returnAddress: address,
+              traceId: message.traceId
+            })
+          );
+
+        createSubscription(message.args, message.path, {
+          complete: () => {
+            subscribePromise.then((subscriptionId) => {
+              subscriptions.delete(subscriptionId);
+
+              messageQueue.next(
+                contract.serializer.serialize(
+                  Message.ObserverComplete({
+                    address: message.returnAddress,
+                    returnAddress: address,
+                    subscriptionId
+                  })
+                )
+              );
+            });
+          },
+          error: (error) => {
+            subscribePromise.then((subscriptionId) => {
+              subscriptions.delete(subscriptionId);
+
+              messageQueue.next(
+                contract.serializer.serialize(
+                  Message.ObserverError({
+                    address: message.returnAddress,
+                    error,
+                    returnAddress: address,
+                    subscriptionId
+                  })
+                )
+              );
+            });
+          },
+          next: (value) =>
+            subscribePromise.then((subscriptionId) =>
+              messageQueue.next(
+                contract.serializer.serialize(
+                  Message.ObserverNext({
+                    address: message.returnAddress,
+                    returnAddress: address,
+                    subscriptionId,
+                    value
+                  })
+                )
               )
             )
-        );
+        }).then(subscribeController.resolve, subscribeController.reject);
 
-        return Message.Return({
-          address: message.returnAddress,
-          returnAddress: address,
-          traceId: message.traceId,
-          value: subscriptionId as TransferFormat
-        });
+        return messagePromise;
       }
 
       case Message.Type.Unsubscribe: {
-        const clientSubscriptions = subscriptions.get(message.returnAddress);
-        const subscription = clientSubscriptions?.get(message.subscriptionId);
+        const subscription = subscriptions?.get(message.subscriptionId);
 
-        subscription?.unsubscribe();
-        clientSubscriptions?.delete(message.subscriptionId);
+        try {
+          await subscription?.unsubscribe();
 
-        return Message.Return({
-          address: message.returnAddress,
-          returnAddress: address,
-          traceId: message.traceId,
-          value: "ok" as TransferFormat
-        });
+          return Message.Unsubscribed({
+            address: message.returnAddress,
+            returnAddress: address,
+            traceId: message.traceId
+          });
+        } catch (error) {
+          return Message.Error({
+            address: message.returnAddress,
+            error: error as TransferFormat,
+            returnAddress: address,
+            traceId: message.traceId
+          });
+        }
       }
 
       default:
         return Message.Error({
           address: message.returnAddress,
-          error: "invalid message" as TransferFormat,
+          error: InvalidMessageError(message.type) as TransferFormat,
           returnAddress: address,
           traceId: message.traceId
         });
@@ -204,14 +322,14 @@ const ServerSession = <TransferFormat>(
     return Promise.resolve();
   };
 
-  const terminate = () => {
+  const terminate = async () => {
     state = State.Terminated;
 
-    for (const clientSubscriptions of subscriptions.values()) {
-      for (const subscription of clientSubscriptions.values()) {
-        subscription.unsubscribe();
-      }
-    }
+    await Promise.all(
+      [...subscriptions.values()].map((subscription) =>
+        subscription.unsubscribe()
+      )
+    );
 
     messageQueue.complete();
     stateChange.next(state);
@@ -228,9 +346,17 @@ const ServerSession = <TransferFormat>(
     },
     stateChange: stateChange.asObservable(),
     terminate,
-    [Symbol.dispose]: terminate,
+    [Symbol.asyncDispose]: terminate,
     _tag: "ServerSession"
   };
 };
 
-export { ServerSession, State };
+export {
+  type Error,
+  type IncompatibleMessageError,
+  type InvalidMessageError,
+  type SessionTerminatedError,
+  type TypeError,
+  ServerSession,
+  State
+};

@@ -37,10 +37,14 @@ export enum Type {
   Batch = "Batch",
   Call = "Call",
   Error = "Error",
-  Next = "Next",
+  ObserverComplete = "ObserverComplete",
+  ObserverError = "ObserverError",
+  ObserverNext = "ObserverNext",
   Return = "Return",
   Subscribe = "Subscribe",
-  Unsubscribe = "Unsubscribe"
+  Subscribed = "Subscribed",
+  Unsubscribe = "Unsubscribe",
+  Unsubscribed = "Unsubscribed"
 }
 
 /**
@@ -59,10 +63,14 @@ export type Message<IO = unknown> =
   | Batch<IO>
   | Call<IO[]>
   | Error<IO>
-  | Next<IO>
+  | ObserverComplete
+  | ObserverError<IO>
+  | ObserverNext<IO>
   | Return<IO>
-  | Subscribe
-  | Unsubscribe;
+  | Subscribe<IO>
+  | Subscribed
+  | Unsubscribe
+  | Unsubscribed;
 
 export type { Message as t };
 
@@ -150,6 +158,36 @@ export const Call = <IO>({
   version
 });
 
+export type ObserverComplete = FlattenIntersection<
+  MessageBase & {
+    readonly subscriptionId: string;
+    readonly type: Type.ObserverComplete;
+  }
+>;
+
+/**
+ *
+ */
+export const ObserverComplete = ({
+  address,
+  returnAddress,
+  subscriptionId,
+  traceId = UUID.v4()
+}: {
+  address: string;
+  returnAddress: string;
+  subscriptionId: string;
+  traceId?: string;
+}): ObserverComplete => ({
+  address,
+  protocol,
+  returnAddress,
+  subscriptionId,
+  traceId,
+  type: Type.ObserverComplete,
+  version
+});
+
 export type Error<Error> = FlattenIntersection<
   MessageBase & {
     readonly error: Error;
@@ -180,10 +218,44 @@ export const Error = <T>({
   version
 });
 
-export type Next<IO> = FlattenIntersection<
+export type ObserverError<Error> = FlattenIntersection<
+  MessageBase & {
+    readonly error: Error;
+    readonly subscriptionId: string;
+    readonly type: Type.ObserverError;
+  }
+>;
+
+/**
+ *
+ */
+export const ObserverError = <T>({
+  address,
+  error,
+  returnAddress,
+  subscriptionId,
+  traceId = UUID.v4()
+}: {
+  address: string;
+  error: T;
+  returnAddress: string;
+  subscriptionId: string;
+  traceId?: string;
+}): ObserverError<T> => ({
+  address,
+  error,
+  protocol,
+  returnAddress,
+  subscriptionId,
+  traceId,
+  type: Type.ObserverError,
+  version
+});
+
+export type ObserverNext<IO> = FlattenIntersection<
   MessageBase & {
     readonly subscriptionId: string;
-    readonly type: Type.Next;
+    readonly type: Type.ObserverNext;
     readonly value: IO;
   }
 >;
@@ -191,7 +263,7 @@ export type Next<IO> = FlattenIntersection<
 /**
  *
  */
-export const Next = <IO>({
+export const ObserverNext = <IO>({
   address,
   returnAddress,
   subscriptionId,
@@ -203,12 +275,12 @@ export const Next = <IO>({
   subscriptionId: string;
   traceId?: string;
   value: IO;
-}): Next<IO> => ({
+}): ObserverNext<IO> => ({
   address,
   protocol,
   returnAddress,
   subscriptionId,
-  type: Type.Next,
+  type: Type.ObserverNext,
   traceId,
   value,
   version
@@ -244,8 +316,9 @@ export const Return = <IO>({
   version
 });
 
-export type Subscribe = FlattenIntersection<
+export type Subscribe<IO> = FlattenIntersection<
   MessageBase & {
+    readonly args: IO[];
     readonly path: string[];
     readonly traceId: string;
     readonly type: Type.Subscribe;
@@ -255,23 +328,56 @@ export type Subscribe = FlattenIntersection<
 /**
  *
  */
-export const Subscribe = ({
+export const Subscribe = <IO>({
   address,
+  args,
   path,
   returnAddress,
   traceId = UUID.v4()
 }: {
   address: string;
+  args: IO[];
   path: string[];
   returnAddress: string;
   traceId?: string;
-}): Subscribe => ({
+}): Subscribe<IO> => ({
   address,
+  args,
   path,
   protocol,
   returnAddress,
   traceId,
   type: Type.Subscribe,
+  version
+});
+
+export type Subscribed = FlattenIntersection<
+  MessageBase & {
+    readonly subscriptionId: string;
+    readonly type: Type.Return;
+  }
+>;
+
+/**
+ *
+ */
+export const Subscribed = ({
+  address,
+  returnAddress,
+  subscriptionId,
+  traceId = UUID.v4()
+}: {
+  address: string;
+  returnAddress: string;
+  subscriptionId: string;
+  traceId?: string;
+}): Subscribed => ({
+  address,
+  protocol,
+  returnAddress,
+  subscriptionId,
+  traceId,
+  type: Type.Return,
   version
 });
 
@@ -302,6 +408,32 @@ export const Unsubscribe = ({
   subscriptionId,
   traceId,
   type: Type.Unsubscribe,
+  version
+});
+
+export type Unsubscribed = FlattenIntersection<
+  MessageBase & {
+    readonly type: Type.Unsubscribed;
+  }
+>;
+
+/**
+ *
+ */
+export const Unsubscribed = ({
+  address,
+  returnAddress,
+  traceId = UUID.v4()
+}: {
+  address: string;
+  returnAddress: string;
+  traceId?: string;
+}): Unsubscribed => ({
+  address,
+  protocol,
+  returnAddress,
+  traceId,
+  type: Type.Unsubscribed,
   version
 });
 

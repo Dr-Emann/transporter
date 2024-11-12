@@ -11,27 +11,39 @@ type DataContract<IO, TransferFormat> = {
   Procedure<T extends JsFunction.Bivariant<(...input: IO[]) => Promise<IO>>>(
     procedure: T
   ): Procedure.Procedure<T>;
-  Subscription<T extends IO>(): Subscription.Subscription<T>;
+  Subscription<
+    T extends JsFunction.Async,
+    Args extends readonly [...IO[], observer: Subscription.Observer<IO>]
+  >(
+    subscription: T &
+      JsFunction.Bivariant<
+        (...args: Args) => Promise<{ unsubscribe: Subscription.Unsubscribe }>
+      >
+  ): Subscription.Subscription<T>;
   _tag: "DataContract";
 };
 
-const DataContract = <IO, TransferFormat = IO>(
-  serializer: Serializer.Serializer<
-    IO,
-    TransferFormat
-  > = Serializer.identity as Serializer.Serializer<IO, TransferFormat>
-): DataContract<IO, TransferFormat> => {
+type DataContractOptions<IO, TransferFormat> = {
+  serializer?: Serializer.Serializer<IO, TransferFormat>;
+};
+
+const DataContract = <IO, TransferFormat = IO>({
+  serializer = Serializer.identity as Serializer.Serializer<IO, TransferFormat>
+}: DataContractOptions<IO, TransferFormat> = {}): DataContract<
+  IO,
+  TransferFormat
+> => {
   return {
     APIContract<T>(api: T) {
       return APIContract.APIContract<T, IO, TransferFormat>(api, {
         serializer
       });
     },
-    Procedure(procedure) {
-      return Procedure.Procedure(procedure);
+    Procedure(...args) {
+      return Procedure.Procedure(...args);
     },
-    Subscription() {
-      return Subscription.Subscription();
+    Subscription(...args) {
+      return Subscription.Subscription(...args);
     },
     _tag: "DataContract"
   } satisfies DataContract<IO, TransferFormat>;

@@ -10,17 +10,17 @@ import * as Serializer from "./Serializer.js";
 import * as Transport from "./Transport.js";
 import * as UUID from "./UUID.js";
 
-type Client<
-  Contract,
-  ConnectionMode extends Transport.ConnectionMode
-> = (ConnectionMode extends Transport.ConnectionMode.Connectionless
-  ? APIProxy.APIProxy<
-      JsObject.PickDeep<
-        APIContract.Infer<Contract, "API">,
-        Procedure.Procedure<any>
+type Client<Contract, ConnectionMode extends Transport.ConnectionMode> = {
+  api: ConnectionMode extends Transport.ConnectionMode.Connectionless
+    ? APIProxy.APIProxy<
+        JsObject.PickDeep<
+          APIContract.Infer<Contract, "API">,
+          Procedure.Procedure<any>
+        >
       >
-    >
-  : APIProxy.APIProxy<APIContract.Infer<Contract, "API">>) & { _tag: "Client" };
+    : APIProxy.APIProxy<APIContract.Infer<Contract, "API">>;
+  _tag: "Client";
+};
 
 type ClientOptions<
   Contract,

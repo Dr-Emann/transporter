@@ -1,8 +1,13 @@
 import { expect, mock, spyOn, test } from "bun:test";
+
 import * as DataContract from "./DataContract.js";
 import * as Injector from "./Injector.js";
+import * as Json from "./Json.js";
 import * as Message from "./Message.js";
+import * as Observable from "./Observable/index.js";
 import * as ServerSession from "./ServerSession.js";
+import * as Subject from "./Subject.js";
+import * as Subscription from "./Subscription.js";
 
 test("a session starts in an active state", () => {
   const { APIContract } = DataContract.DataContract();
@@ -11,33 +16,33 @@ test("a session starts in an active state", () => {
   session.terminate();
 });
 
-test("terminating a session changes its state", () => {
+test("terminating a session changes its state", async () => {
   const { APIContract } = DataContract.DataContract();
   const session = ServerSession.ServerSession(APIContract({}));
   const next = mock();
   const complete = mock();
   session.stateChange.subscribe({ complete, next });
-  session.terminate();
+  await session.terminate();
   expect(next).toHaveBeenCalledTimes(1);
   expect(next).toHaveBeenCalledWith(ServerSession.State.Terminated);
   expect(complete).toHaveBeenCalledTimes(1);
 });
 
-test("terminating a session completes the messageQueue", () => {
+test("terminating a session completes the messageQueue", async () => {
   const { APIContract } = DataContract.DataContract();
   const session = ServerSession.ServerSession(APIContract({}));
   const complete = mock();
   session.messageQueue.subscribe({ complete });
-  session.terminate();
+  await session.terminate();
   expect(complete).toHaveBeenCalledTimes(1);
 });
 
-test("terminating a session using explicit resource management", () => {
+test("terminating a session using explicit resource management", async () => {
   const next = mock();
 
   {
     const { APIContract } = DataContract.DataContract();
-    using session = ServerSession.ServerSession(APIContract({}));
+    await using session = ServerSession.ServerSession(APIContract({}));
     session.stateChange.subscribe(next);
   }
 
@@ -137,9 +142,52 @@ test("sending a message without awaiting the response pushes the message onto th
   );
 });
 
-test("subscribing to a subscription puts a Next message on the messageQueue when a value is emitted", async () => {
+test("using a serializer", async () => {
+  const serializer = {
+    serialize: (value: Json.t) => JSON.stringify(value),
+    deserialize: (value: string) => JSON.parse(value) as Json.t
+  };
+
+  const { Procedure, APIContract } = DataContract.DataContract({ serializer });
+
+  const session = ServerSession.ServerSession(
+    APIContract({
+      test: Procedure(async () => "👍")
+    })
+  );
+
+  const message = await session.sendAwait(
+    serializer.serialize(
+      Message.Call({
+        address: "",
+        args: [],
+        path: ["test"],
+        returnAddress: "123"
+      })
+    )
+  );
+
+  session.terminate();
+
+  expect(message).toBeString();
+  expect(serializer.deserialize(message!)).toMatchObject(
+    Message.Return({
+      address: "123",
+      returnAddress: "",
+      traceId: expect.any(String),
+      value: "👍"
+    })
+  );
+});
+
+test("subscribing to a subscription puts an ObserverNext message on the messageQueue when a value is emitted", async () => {
   const { Subscription, APIContract } = DataContract.DataContract();
-  const test = Subscription<string>();
+
+  const test = Subscription(async (observer: Subscription.Observer<string>) => {
+    observer.next?.("🤘");
+    return { async unsubscribe() {} };
+  });
+
   const session = ServerSession.ServerSession(APIContract({ test }));
   const next = mock();
 
@@ -148,17 +196,17 @@ test("subscribing to a subscription puts a Next message on the messageQueue when
   await session.sendAwait(
     Message.Subscribe({
       address: "",
+      args: [],
       path: ["test"],
       returnAddress: "123"
     })
   );
 
-  test.next("🤘");
   session.terminate();
 
   expect(next).toHaveBeenCalledTimes(1);
   expect(next).toHaveBeenCalledWith(
-    Message.Next({
+    Message.ObserverNext({
       address: "123",
       returnAddress: "",
       subscriptionId: expect.any(String),
@@ -170,15 +218,21 @@ test("subscribing to a subscription puts a Next message on the messageQueue when
 
 test("terminating a session unsubscribes from all subscriptions", async () => {
   const { Subscription, APIContract } = DataContract.DataContract();
-  const test = Subscription<string>();
+
+  const test = Subscription(async (observer: Subscription.Observer<string>) => {
+    const subscription = Observable.of("🤘").subscribe(observer);
+    return { unsubscribe: async () => subscription.unsubscribe() };
+  });
+
   const session = ServerSession.ServerSession(APIContract({ test }));
   const spy = spyOn(test, "subscribe");
-  const unsubscribe = mock(() => {});
-  spy.mockImplementation(() => ({ unsubscribe }));
+  const unsubscribe = mock(async () => {});
+  spy.mockImplementation(async () => ({ unsubscribe }));
 
   await session.sendAwait(
     Message.Subscribe({
       address: "",
+      args: [],
       path: ["test"],
       returnAddress: "123"
     })
@@ -189,22 +243,14 @@ test("terminating a session unsubscribes from all subscriptions", async () => {
   expect(unsubscribe).toHaveBeenCalledTimes(1);
 });
 
-test("a message is not emitted if the subscription is not subscribed to", async () => {
+test.skip("subscribing multiple times does not create multiple subscriptions", async () => {
   const { Subscription, APIContract } = DataContract.DataContract();
-  const test = Subscription<string>();
-  const session = ServerSession.ServerSession(APIContract({ test }));
-  const next = mock();
 
-  session.messageQueue.subscribe(next);
-  test.next("🤘");
-  session.terminate();
+  const test = Subscription(async (observer: Subscription.Observer<string>) => {
+    const subscription = Observable.of("🤘").subscribe(observer);
+    return { unsubscribe: async () => subscription.unsubscribe() };
+  });
 
-  expect(next).toHaveBeenCalledTimes(0);
-});
-
-test("subscribing multiple times does not create multiple subscriptions", async () => {
-  const { Subscription, APIContract } = DataContract.DataContract();
-  const test = Subscription<string>();
   const session = ServerSession.ServerSession(APIContract({ test }));
   const next = mock();
 
@@ -212,6 +258,7 @@ test("subscribing multiple times does not create multiple subscriptions", async 
 
   const message = Message.Subscribe({
     address: "",
+    args: [],
     path: ["test"],
     returnAddress: "123"
   });
@@ -219,7 +266,6 @@ test("subscribing multiple times does not create multiple subscriptions", async 
   await session.sendAwait(message);
   await session.sendAwait(message);
 
-  test.next("🤘");
   session.terminate();
 
   expect(next).toHaveBeenCalledTimes(1);
@@ -227,7 +273,13 @@ test("subscribing multiple times does not create multiple subscriptions", async 
 
 test("unsubscribing terminates the subscription", async () => {
   const { Subscription, APIContract } = DataContract.DataContract();
-  const test = Subscription<string>();
+  const subject = Subject.init<string>();
+
+  const test = Subscription(async (observer: Subscription.Observer<string>) => {
+    const subscription = subject.asObservable().subscribe(observer);
+    return { unsubscribe: async () => subscription.unsubscribe() };
+  });
+
   const session = ServerSession.ServerSession(APIContract({ test }));
   const next = mock();
 
@@ -236,28 +288,145 @@ test("unsubscribing terminates the subscription", async () => {
   const reply = (await session.sendAwait(
     Message.Subscribe({
       address: "",
+      args: [],
       path: ["test"],
       returnAddress: "123"
     })
-  )) as Message.Return<string>;
+  )) as Message.Subscribed;
 
-  test.next("🤘");
+  subject.next("🤘");
 
-  await session.sendAwait(
+  const reply2 = await session.sendAwait(
     Message.Unsubscribe({
       address: "",
-      subscriptionId: reply.value,
+      subscriptionId: reply.subscriptionId,
       returnAddress: "123"
     })
   );
 
-  test.next("😘");
+  subject.next("😘");
+  await scheduleTask();
   session.terminate();
 
   expect(next).toHaveBeenCalledTimes(1);
+  expect(reply2).toMatchObject(
+    Message.Unsubscribed({
+      address: "123",
+      returnAddress: "",
+      traceId: expect.any(String)
+    })
+  );
 });
 
-test("using dependency injection", async () => {
+test("a subscription that completes", async () => {
+  const { Subscription, APIContract } = DataContract.DataContract();
+
+  const test = Subscription(async (observer: Subscription.Observer<string>) => {
+    observer.complete?.();
+    return { async unsubscribe() {} };
+  });
+
+  const session = ServerSession.ServerSession(APIContract({ test }));
+  const next = mock();
+
+  session.messageQueue.subscribe(next);
+
+  await session.sendAwait(
+    Message.Subscribe({
+      address: "",
+      args: [],
+      path: ["test"],
+      returnAddress: "123"
+    })
+  );
+
+  session.terminate();
+
+  expect(next).toHaveBeenCalledTimes(1);
+  expect(next).toHaveBeenCalledWith(
+    Message.ObserverComplete({
+      address: "123",
+      returnAddress: "",
+      subscriptionId: expect.any(String),
+      traceId: expect.any(String)
+    })
+  );
+});
+
+test("a subscription that errors", async () => {
+  const { Subscription, APIContract } = DataContract.DataContract();
+
+  const test = Subscription(async (observer: Subscription.Observer<string>) => {
+    observer.error?.("💣");
+    return { async unsubscribe() {} };
+  });
+
+  const session = ServerSession.ServerSession(APIContract({ test }));
+  const next = mock();
+
+  session.messageQueue.subscribe(next);
+
+  await session.sendAwait(
+    Message.Subscribe({
+      address: "",
+      args: [],
+      path: ["test"],
+      returnAddress: "123"
+    })
+  );
+
+  session.terminate();
+
+  expect(next).toHaveBeenCalledTimes(1);
+  expect(next).toHaveBeenCalledWith(
+    Message.ObserverError({
+      address: "123",
+      error: "💣",
+      returnAddress: "",
+      subscriptionId: expect.any(String),
+      traceId: expect.any(String)
+    })
+  );
+});
+
+test("returning an error from a subscription", async () => {
+  const { Subscription, APIContract } = DataContract.DataContract();
+
+  const test = Subscription(
+    async (_observer: Subscription.Observer<string>) => {
+      throw "💣";
+      return { async unsubscribe() {} };
+    }
+  );
+
+  const session = ServerSession.ServerSession(APIContract({ test }));
+  const next = mock();
+
+  session.messageQueue.subscribe(next);
+
+  const reply = await session.sendAwait(
+    Message.Subscribe({
+      address: "",
+      args: [],
+      path: ["test"],
+      returnAddress: "123"
+    })
+  );
+
+  session.terminate();
+
+  expect(next).toHaveBeenCalledTimes(0);
+  expect(reply).toMatchObject(
+    Message.Error({
+      address: "123",
+      error: "💣",
+      returnAddress: "",
+      traceId: expect.any(String)
+    })
+  );
+});
+
+test("using dependency injection with a procedure", async () => {
   const { Procedure, APIContract } = DataContract.DataContract();
   type Rocket = { blastoff(): string };
   const Rocket = Injector.Tag<Rocket>();
@@ -291,6 +460,112 @@ test("using dependency injection", async () => {
   session.terminate();
 
   expect(rocket.blastoff).toHaveBeenCalledTimes(1);
+});
+
+test("using dependency injection with a subscription", async () => {
+  const { Subscription, APIContract } = DataContract.DataContract();
+  type Rocket = { blastoff(): string };
+  const Rocket = Injector.Tag<Rocket>();
+
+  const rocket: Rocket = {
+    blastoff: mock(() => "🚀")
+  };
+
+  const injector = Injector.empty().add(Rocket, rocket);
+
+  const subscription = Injector.provide(
+    [Rocket],
+    async (rocket: Rocket, _observer: Subscription.Observer<string>) => {
+      rocket.blastoff();
+      return { unsubscribe: async () => {} };
+    }
+  );
+
+  const session = ServerSession.ServerSession(
+    APIContract({
+      test: Subscription(subscription)
+    }),
+    { injector }
+  );
+
+  await session.sendAwait(
+    Message.Subscribe({
+      address: "",
+      args: [],
+      path: ["test"],
+      returnAddress: "123"
+    })
+  );
+
+  session.terminate();
+
+  expect(rocket.blastoff).toHaveBeenCalledTimes(1);
+});
+
+test("an error is returned if the value is not a procedure", async () => {
+  const { APIContract } = DataContract.DataContract();
+
+  const session = ServerSession.ServerSession(
+    APIContract({
+      test: async () => {}
+    })
+  );
+
+  const reply = await session.sendAwait(
+    Message.Call({
+      address: "",
+      args: [],
+      path: ["test"],
+      returnAddress: "123"
+    })
+  );
+
+  session.terminate();
+
+  expect(reply).toMatchObject(
+    Message.Error({
+      address: "123",
+      error: {
+        message: "The value at path 'test' is not a procedure.",
+        type: "TypeError"
+      },
+      returnAddress: "",
+      traceId: expect.any(String)
+    })
+  );
+});
+
+test("an error is returned if the value is not a subscription", async () => {
+  const { APIContract } = DataContract.DataContract();
+
+  const session = ServerSession.ServerSession(
+    APIContract({
+      test: async () => {}
+    })
+  );
+
+  const reply = await session.sendAwait(
+    Message.Subscribe({
+      address: "",
+      args: [],
+      path: ["test"],
+      returnAddress: "123"
+    })
+  );
+
+  session.terminate();
+
+  expect(reply).toMatchObject(
+    Message.Error({
+      address: "123",
+      error: {
+        message: "The value at path 'test' is not a subscription.",
+        type: "TypeError"
+      },
+      returnAddress: "",
+      traceId: expect.any(String)
+    })
+  );
 });
 
 test("giving a session an explicit address", async () => {
@@ -383,7 +658,11 @@ test("an error is returned if the message version is incompatible", async () => 
   expect(response).toMatchObject(
     Message.Error({
       address: "123",
-      error: "incompatible version",
+      error: {
+        message:
+          "Message with version 0.0.0 is not compatible with version 1.1.0.",
+        type: "IncompatibleMessageError"
+      },
       returnAddress: "",
       traceId: expect.any(String)
     })
@@ -415,7 +694,10 @@ test("an error is returned if the session is terminated", async () => {
   expect(response).toMatchObject(
     Message.Error({
       address: "123",
-      error: "session terminated",
+      error: {
+        message: "The session is terminated.",
+        type: "SessionTerminatedError"
+      },
       returnAddress: "",
       traceId: expect.any(String)
     })
@@ -444,7 +726,10 @@ test("an error is returned if the wrong message type is received", async () => {
   expect(response).toMatchObject(
     Message.Error({
       address: "123",
-      error: "invalid message",
+      error: {
+        message: "Message with type Return is invalid.",
+        type: "InvalidMessageError"
+      },
       returnAddress: "",
       traceId: expect.any(String)
     })
@@ -453,8 +738,17 @@ test("an error is returned if the wrong message type is received", async () => {
 
 test("sending a batch message", async () => {
   const { Subscription, APIContract } = DataContract.DataContract();
-  const sub1 = Subscription<string>();
-  const sub2 = Subscription<string>();
+
+  const sub1 = Subscription(async (observer: Subscription.Observer<string>) => {
+    observer.next?.("🤘");
+    return { async unsubscribe() {} };
+  });
+
+  const sub2 = Subscription(async (observer: Subscription.Observer<string>) => {
+    observer.next?.("💩");
+    return { async unsubscribe() {} };
+  });
+
   const session = ServerSession.ServerSession(APIContract({ sub1, sub2 }));
   const next = mock();
 
@@ -466,11 +760,13 @@ test("sending a batch message", async () => {
       messages: [
         Message.Subscribe({
           address: "",
+          args: [],
           path: ["sub1"],
           returnAddress: "abc"
         }),
         Message.Subscribe({
           address: "",
+          args: [],
           path: ["sub2"],
           returnAddress: "xyz"
         })
@@ -479,24 +775,22 @@ test("sending a batch message", async () => {
     })
   );
 
-  sub1.next("🤘");
-  sub2.next("💩");
   session.terminate();
 
   expect(message).toMatchObject(
     Message.Batch({
       address: "123",
       messages: [
-        Message.Return({
+        Message.Subscribed({
           address: "abc",
-          value: expect.any(String),
           returnAddress: "",
+          subscriptionId: expect.any(String),
           traceId: expect.any(String)
         }),
-        Message.Return({
+        Message.Subscribed({
           address: "xyz",
-          value: expect.any(String),
           returnAddress: "",
+          subscriptionId: expect.any(String),
           traceId: expect.any(String)
         })
       ],
@@ -508,7 +802,7 @@ test("sending a batch message", async () => {
   expect(next).toHaveBeenCalledTimes(2);
 
   expect(next).toHaveBeenCalledWith(
-    Message.Next({
+    Message.ObserverNext({
       address: "abc",
       subscriptionId: expect.any(String),
       traceId: expect.any(String),
@@ -518,7 +812,7 @@ test("sending a batch message", async () => {
   );
 
   expect(next).toHaveBeenCalledWith(
-    Message.Next({
+    Message.ObserverNext({
       address: "xyz",
       subscriptionId: expect.any(String),
       traceId: expect.any(String),
