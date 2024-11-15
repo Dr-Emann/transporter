@@ -1,19 +1,25 @@
-import * as JsFunction from "./JsFunction.js";
 import * as JsObject from "./JsObject.js";
+import * as Future from "./Future.js";
 
 const TYPE = "Procedure";
 const type = Symbol.for(TYPE);
 
-type Procedure<T extends JsFunction.Async> = {
-  call: T;
-  [type]: typeof TYPE;
+type Procedure = (...args: never[]) => Future.Future<unknown, never>;
+
+const Procedure = <
+  const Args extends readonly unknown[],
+  const R,
+  const E = never
+>(
+  procedure: (...args: Args) => Future.Future<R, E> | Promise<R> | R
+): ((...args: Args) => Future.Future<R, E>) => {
+  return Object.assign(
+    (...args: Args) => Future.Future.resolve(procedure(...args)),
+    { [type]: TYPE }
+  );
 };
 
-const Procedure = <T extends JsFunction.Async>(func: T): Procedure<T> => {
-  return { call: func, [type]: TYPE };
-};
-
-const isProcedure = <T>(value: T): value is T & Procedure<JsFunction.Async> => {
+const isProcedure = <T>(value: T): value is T & Procedure => {
   return (
     JsObject.isObject(value) &&
     JsObject.has(value, type) &&
