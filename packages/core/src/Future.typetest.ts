@@ -57,8 +57,11 @@ test("chain a future with catch", () => {
 });
 
 test("flattening a future", () => {
-  type _test = Flatten<Future<Future<Future<string, number>, boolean>, null>>;
-  //   ^? type _test = Future<string, number | boolean | null>
+  type test = Flatten<Future<Future<Future<string, number>, boolean>, null>>;
+  //   ^? type test = Future<string, number | boolean | null>
+
+  type test2 = Flatten<Promise<Future<string, number>>>;
+  //   ^? type test2 = Future<string, number>
 });
 
 test("futures are nominal typed", () => {

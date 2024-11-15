@@ -5,6 +5,9 @@ import * as Observable from "./Observable/Observable.js";
 import * as Procedure from "./Procedure.js";
 import * as Serializer from "./Serializer.js";
 import * as Subscription from "./Subscription.js";
+import * as Try from "./Try.js";
+
+type ObservableType<T> = T extends Observable.Observable<infer V> ? V : never;
 
 type DataContract<IO, TransferFormat> = {
   APIContract<T extends APIContract.RestrictIO<T, IO>>(
@@ -12,25 +15,38 @@ type DataContract<IO, TransferFormat> = {
   ): APIContract.APIContract<T, IO, TransferFormat>;
   Procedure<
     const Args extends readonly IO[],
-    R extends IO,
-    E extends IO = never
+    Return extends
+      | Future.Future<IO, IO>
+      | Promise<Try.Try<IO, IO>>
+      | Promise<IO>
+      | Try.Try<IO, IO>
+      | IO
   >(
-    procedure: (...args: Args) => Future.Future<R, E> | Promise<R> | R
-  ): (...args: Args) => Future.Future<R, E>;
+    procedure: (...args: Args) => Return
+  ): (
+    ...args: Args
+  ) => Future.Future<
+    Procedure.SuccessType<Return>,
+    Procedure.FailureType<Return>
+  >;
   Subscription<
     const Args extends readonly IO[],
-    R extends IO,
-    E extends IO = never
+    Return extends
+      | Future.Future<Observable.Observable<IO>, IO>
+      | Promise<Try.Try<Observable.Observable<IO>, IO>>
+      | Promise<Observable.Observable<IO>>
+      | Try.Try<Observable.Observable<IO>, IO>
+      | Observable.Observable<IO>
   >(
-    subscription: (
-      ...args: Args
-    ) =>
-      | Future.Future<Observable.Observable<R>, E>
-      | Promise<Observable.Observable<R>>
-      | Observable.Observable<R>
+    subscription: (...args: Args) => Return
   ): (
-    ...args: [...Args, observer: Subscription.Observer<R>]
-  ) => Future.Future<Observable.Subscription, E>;
+    ...args: [
+      ...Args,
+      observer: Subscription.Observer<
+        ObservableType<Procedure.SuccessType<Return>>
+      >
+    ]
+  ) => Future.Future<Observable.Subscription, Procedure.FailureType<Return>>;
   _tag: "DataContract";
 };
 
@@ -61,7 +77,7 @@ const DataContract = <
       return Subscription.Subscription(...args);
     },
     _tag: "DataContract"
-  } satisfies DataContract<IO, TransferFormat>;
+  };
 };
 
 export { DataContract };

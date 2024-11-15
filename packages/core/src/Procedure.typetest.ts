@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { Procedure, isProcedure } from "./Procedure.js";
 import { Future } from "./Future.js";
+import { Fail, Succeed } from "./Try.js";
 
 test("creating a procedure", () => {
   const procedure1 = Procedure(() => {});
@@ -8,13 +9,26 @@ test("creating a procedure", () => {
 
   const procedure2 = Procedure(() => "hi");
   //    ^? const procedure2: () => Future<string, never>
+
+  const procedure3 = Procedure(() => Succeed("hi"));
+  //    ^? const procedure3: () => Future<"hi", never>
 });
 
 test("creating a procedure that returns a promise", () => {
   // The error type is any in this case because a promise does not encode an
   // error type
   const procedure = Procedure(async () => "hi");
-  //    ^? const procedure: () => Future<string, any>
+  //    ^? const procedure: () => Future<string, never>
+});
+
+test("creating a procedure that returns a Try wrapped in a promise", () => {
+  const procedure = Procedure(async () => {
+    if (Math.random() > 0.5) return Fail("💣");
+    return "hi";
+  });
+
+  procedure;
+  // ^? const procedure: () => Future<"hi", "💣">
 });
 
 test("creating a procedure that returns a future", () => {
@@ -35,7 +49,7 @@ test("creating a generic procedure", () => {
   });
 
   procedure;
-  // ^? const procedure: <T>(arg: T) => Future<T extends string ? number : boolean, never>
+  // ^? const procedure: <T>(arg: T) => Future<SuccessType<T extends string ? number : boolean>, FailureType<T extends string ? number : boolean>>
 
   const call1 = procedure("hi");
   //    ^? const call1: Future<number, never>
@@ -52,13 +66,13 @@ test("creating a generic procedure that returns a promise", () => {
   });
 
   procedure;
-  // ^? const procedure: <T>(arg: T) => Future<T extends string ? number : boolean, any>
+  // ^? const procedure: <T>(arg: T) => Future<SuccessType<T extends string ? number : boolean>, FailureType<T extends string ? number : boolean>>
 
   const call1 = procedure("hi");
-  //    ^? const call1: Future<number, any>
+  //    ^? const call1: Future<number, never>
 
   const call2 = procedure(13);
-  //    ^? const call2: Future<boolean, any>
+  //    ^? const call2: Future<boolean, never>
 });
 
 test("creating a generic procedure that returns a future", () => {

@@ -1,36 +1,66 @@
+import * as Future from "./Future.js";
 import * as JsFunction from "./JsFunction.js";
 import * as JsObject from "./JsObject.js";
-
-type Observer<T> = {
-  next?(value: T): void;
-  error?(error: unknown): void;
-  complete?(): void;
-};
-
-type Unsubscribe = () => Promise<void>;
+import * as Observable from "./Observable/index.js";
+import * as Procedure from "./Procedure.js";
+import * as Try from "./Try.js";
 
 const TYPE = "Subscription";
 const type = Symbol.for(TYPE);
 
-type Subscribe = (
-  ...args: [...any[], Observer<any>]
-) => Promise<{ unsubscribe: Unsubscribe }>;
+type Observer<T> = ((next: T) => void) | Observable.Observer<T>;
 
-interface Subscription<T extends Subscribe> {
-  subscribe: T;
-  [type]: typeof TYPE;
-}
+type ObservableType<T> = T extends Observable.Observable<infer V> ? V : never;
+
+type Subscription = (
+  ...args: [...never[], observer: Observer<unknown>]
+) => Future.Future<Observable.Subscription, never>;
 
 const Subscription = <
-  T extends JsFunction.Async,
-  Args extends readonly [...unknown[], observer: Observer<any>]
+  const Args extends readonly unknown[],
+  const Return extends
+    | Future.Future<Observable.Observable<unknown>, unknown>
+    | Promise<Try.Try<Observable.Observable<unknown>, unknown>>
+    | Promise<Observable.Observable<unknown>>
+    | Try.Try<Observable.Observable<unknown>, unknown>
+    | Observable.Observable<unknown>
 >(
-  subscribe: T & ((...args: Args) => Promise<{ unsubscribe: Unsubscribe }>)
-): Subscription<T> => {
-  return { subscribe, [type]: TYPE };
+  subscription: (...args: Args) => Return
+): ((
+  ...args: [
+    ...Args,
+    observer: Observer<ObservableType<Procedure.SuccessType<Return>>>
+  ]
+) => Future.Future<Observable.Subscription, Procedure.FailureType<Return>>) => {
+  return (
+    ...args: [
+      ...Args,
+      observer: Observer<ObservableType<Procedure.SuccessType<Return>>>
+    ]
+  ) => {
+    const params = args.slice(0, -1) as unknown as Args;
+    const observer = args.at(-1) as Observer<
+      ObservableType<Procedure.SuccessType<Return>>
+    >;
+
+    return Procedure.Procedure(subscription)(...params).then((observable) => {
+      if (!isObservable(observable)) throw new Error();
+      return observable.subscribe(observer as Observer<unknown>);
+    });
+  };
 };
 
-const isSubscription = <T>(value: T): value is T & Subscription<Subscribe> => {
+const isObservable = (
+  value: unknown
+): value is Observable.ObservableLike<unknown> => {
+  return (
+    JsObject.isObject(value) &&
+    JsObject.has(value, "subscribe") &&
+    JsFunction.isFunction(value.subscribe)
+  );
+};
+
+const isSubscription = <T>(value: T): value is T & Subscription => {
   return (
     JsObject.isObject(value) &&
     JsObject.has(value, type) &&
@@ -38,4 +68,4 @@ const isSubscription = <T>(value: T): value is T & Subscription<Subscribe> => {
   );
 };
 
-export { type Observer, type Unsubscribe, Subscription, isSubscription };
+export { type Observer, Subscription, isSubscription };

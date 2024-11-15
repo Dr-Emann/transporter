@@ -1,164 +1,110 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
+import { Observable, of } from "./Observable/index.js";
 import { type Observer, Subscription } from "./Subscription.js";
+import { Fail } from "./Try.js";
 
 test("creating a subscription", () => {
-  const subscription = Subscription(async (observer: Observer<string>) => {
-    return { async unsubscribe() {} };
-  });
-
-  subscription;
-  // ^? const subscription: Subscription<(observer: Observer<string>) => Promise<{
-  //      unsubscribe(): Promise<void>;
-  //    }>>
+  const subscription = Subscription(() => of(1));
+  //    ^? const subscription: (observer: Observer<number>) => Future<Subscription, never>
 });
 
-test("a subscription must return a promise", () => {
-  // @ts-expect-error a subscription must return a promise
-  Subscription((observer: Observer<string>) => {
-    return { async unsubscribe() {} };
-  });
-});
-
-test("a subscription must return an unsubscribe function", () => {
-  // @ts-expect-error a subscription must return an unsubscribe function
-  Subscription(async (observer: Observer<string>) => {});
-});
-
-test("an unsubscribe function must return a promise", () => {
-  // @ts-expect-error an unsubscribe function must return a promise
-  Subscription(async (observer: Observer<string>) => {
-    return { unsubscribe() {} };
-  });
+test("a subscription must return an observable", () => {
+  // @ts-expect-error Type 'string' is not assignable to type 'Observable<unknown>'.
+  const subscription = Subscription(() => "🥸");
 });
 
 test("a subscription may take 1 or more arguments", () => {
-  const subscription1 = Subscription(
-    async (arg1: string, observer: Observer<string>) => {
-      return { async unsubscribe() {} };
-    }
-  );
+  const subscription1 = Subscription(async (foo: string) => {
+    return of("👍");
+  });
 
   subscription1;
-  // ^? const subscription1: Subscription<(arg1: string, observer: Observer<string>) => Promise<{
-  //      unsubscribe(): Promise<void>;
-  //    }>>
+  // ^? const subscription1: (foo: string, observer: Observer<string>) => Future<Subscription, never>
 
-  const subscription2 = Subscription(
-    async (arg1: string, arg2: number, observer: Observer<string>) => {
-      return { async unsubscribe() {} };
-    }
-  );
+  const subscription2 = Subscription(async (arg1: string, arg2: number) => {
+    return of(true);
+  });
 
   subscription2;
-  // ^? const subscription2: Subscription<(arg1: string, arg2: number, observer: Observer<string>) => Promise<{
-  //      unsubscribe(): Promise<void>;
-  //    }>>
-});
-
-test("the last argument of a subscription must be an Observer", () => {
-  // @ts-expect-error the last argument must ba an Observer
-  Subscription(async (arg1: string) => {
-    return { async unsubscribe() {} };
-  });
-
-  // @ts-expect-error the last argument must ba an Observer
-  Subscription(async (arg1: Observer<string>, arg2: number) => {
-    return { async unsubscribe() {} };
-  });
-
-  // TODO: Can this be fixed?
-  // @ts-expect-error the last argument must ba an Observer
-  Subscription(async () => {
-    return { async unsubscribe() {} };
-  });
-
-  // TODO: Can this be fixed?
-  // @ts-expect-error the last argument must ba an Observer
-  Subscription(async (arg1) => {
-    return { async unsubscribe() {} };
-  });
+  // ^? const subscription2: (arg1: string, arg2: number, observer: Observer<boolean>) => Future<Subscription, never>
 });
 
 test("generics are preserved", () => {
-  const subscription1 = Subscription(
-    async <T>(arg1: T, observer: Observer<string>) => {
-      return { async unsubscribe() {} };
-    }
-  );
+  const subscription1 = Subscription(async <T>(arg1: T) => of(1));
 
   subscription1;
-  // ^? const subscription1: Subscription<(<T>(arg1: T, observer: Observer<string>) => Promise<{
-  //      unsubscribe(): Promise<void>;
-  //    }>)>
+  // ^? const subscription1: <T>(arg1: T, observer: Observer<number>) => Future<Subscription, never>
 
   const subscription2 = Subscription(
-    async <T extends string | number>(
-      arg1: T,
-      observer: T extends string ? Observer<string> : Observer<number>
-    ) => {
-      return { async unsubscribe() {} };
-    }
+    async <T extends string | number>(arg1: T) =>
+      (typeof arg1 === "string" ? of("hi") : of(1)) as T extends string
+        ? Observable<string>
+        : Observable<number>
   );
 
   subscription2;
-  // ^? const subscription2: Subscription<(<T extends string | number>(arg1: T, observer: T extends string ? Observer<string> : Observer<number>) => Promise<{
-  //      unsubscribe(): Promise<void>;
-  //    }>)>
+  // ^? const subscription2: <T extends string | number>(arg1: T, observer: Observer<ObservableType<SuccessType<T extends string ? Observable<string> : Observable<number>>>>) => Future<...>
 
-  const subscription3 = Subscription(
-    async <T1, T2>(arg1: T1, arg2: T2, observer: Observer<string>) => {
-      return { async unsubscribe() {} };
-    }
+  const subscription3 = Subscription(async <T1, T2>(arg1: T1, arg2: T2) =>
+    of(1)
   );
 
   subscription3;
-  // ^? const subscription3: Subscription<(<T1, T2>(arg1: T1, arg2: T2, observer: Observer<string>) => Promise<{
-  //      unsubscribe(): Promise<void>;
-  //    }>)>
+  // ^? const subscription3: <T1, T2>(arg1: T1, arg2: T2, observer: Observer<number>) => Future<Subscription, never>
 });
 
 test("subscribing to a subscription", async () => {
-  const subscription = Subscription(async (observer: Observer<string>) => {
-    return { async unsubscribe() {} };
+  const subscription = Subscription(async () => {
+    return of(99);
   });
 
-  const test = await subscription.subscribe({ next: (value) => {} });
-  //                                                 ^? (parameter) value: string
+  const test = await subscription({ next: (value) => {} });
+  //                                       ^? (parameter) value: number
 
   test;
-  // ^? const test: {
-  //      unsubscribe(): Promise<void>;
-  //    }
+  // ^? const test: Subscription
 });
 
 test("subscribing to a generic subscription", async () => {
   const subscription = Subscription(
-    async <T extends string | number>(
-      arg1: T,
-      observer: T extends string ? Observer<string> : Observer<number>
-    ) => {
-      return { async unsubscribe() {} };
+    async <T extends string | number>(arg1: T) => {
+      return (typeof arg1 === "string" ? of("hi") : of(1)) as T extends string
+        ? Observable<string>
+        : Observable<number>;
     }
   );
 
-  subscription.subscribe("👍", { next: (value) => {} });
-  //                                    ^? (parameter) value: string
+  subscription;
+  // ^? const subscription: <T extends string | number>(arg1: T, observer: Observer<ObservableType<SuccessType<T extends string ? Observable<string> : Observable<number>>>>) => Future<...>
 
-  subscription.subscribe(1234, { next: (value) => {} });
-  //                                    ^? (parameter) value: number
+  const sub1 = subscription("hi", (value) => console.log(value));
+  //                               ^? (parameter) value: string
+
+  const sub2 = subscription(99, (value) => console.log(value));
+  //                             ^? (parameter) value: number
 });
 
 test("subscribing to a subscription with an observer object", async () => {
-  const subscription = Subscription(async (observer: Observer<string>) => {
-    return { async unsubscribe() {} };
+  const subscription = Subscription(async () => {
+    return of("🤘");
   });
 
-  subscription.subscribe({});
-  subscription.subscribe({ next: (value) => {} });
-  //                              ^? (parameter) value: string
-  subscription.subscribe({ complete() {} });
-  subscription.subscribe({ error(error) {} });
-  //                             ^? (parameter) error: unknown
+  subscription({});
+  subscription({ next: (value) => {} });
+  //                    ^? (parameter) value: string
+  subscription({ complete() {} });
+  subscription({ error(error) {} });
+  //                   ^? (parameter) error: unknown
+});
+
+test("a subscription that fails", () => {
+  const subscription = Subscription(() => {
+    if (Math.random() > 0.5) return Fail("💩");
+    return of(12);
+  });
+
+  subscription;
+  // ^? const subscription: (observer: Observer<number>) => Future<Subscription, "💩">
 });
 
 declare function test(message: string, callback: () => void): void;
