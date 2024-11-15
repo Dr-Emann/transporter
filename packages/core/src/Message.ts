@@ -52,6 +52,8 @@ export enum Type {
  */
 export type Version = `${number}.${number}.${number}`;
 
+export type DataType = string | DataType[] | { [key: string]: DataType };
+
 /**
  * A discriminated union of the different types of messages.
  *
@@ -93,7 +95,7 @@ type MessageBase = {
 
 export type Batch<IO> = FlattenIntersection<
   MessageBase & {
-    readonly messages: JsArray.NonEmpty<Exclude<Message<IO>, Batch<IO>>>;
+    readonly messages: JsArray.NonEmpty<Message<IO>>;
     readonly type: Type.Batch;
   }
 >;
@@ -108,10 +110,7 @@ export const Batch = <IO>({
   traceId = UUID.v4()
 }: {
   address: string;
-  messages: [
-    Exclude<Message<IO>, Batch<IO>>,
-    ...Exclude<Message<IO>, Batch<IO>>[]
-  ];
+  messages: JsArray.NonEmpty<Message<IO>>;
   returnAddress: string;
   traceId?: string;
 }): Batch<IO> => ({
