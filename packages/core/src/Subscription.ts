@@ -12,9 +12,11 @@ type Observer<T> = ((next: T) => void) | Observable.Observer<T>;
 
 type ObservableType<T> = T extends Observable.Observable<infer V> ? V : never;
 
-type Subscription = (
-  ...args: [...never[], observer: Observer<unknown>]
-) => Future.Future<Observable.Subscription, never>;
+type Subscription = JsFunction.Bivariant<
+  (
+    ...args: [...unknown[], observer: Observer<any>]
+  ) => Future.Future<Observable.Subscription, never>
+>;
 
 const Subscription = <
   const Args extends readonly unknown[],

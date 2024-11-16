@@ -15,7 +15,7 @@ type Client<Contract, ConnectionMode extends Transport.ConnectionMode> = {
     ? APIProxy.APIProxy<
         JsObject.PickDeep<
           APIContract.Infer<Contract, "API">,
-          Procedure.Procedure<any>
+          Procedure.Procedure
         >
       >
     : APIProxy.APIProxy<APIContract.Infer<Contract, "API">>;

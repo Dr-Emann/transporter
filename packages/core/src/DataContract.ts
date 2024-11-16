@@ -65,7 +65,7 @@ const DataContract = <
   TransferFormat
 > => {
   return {
-    APIContract<T>(api: T) {
+    APIContract<T extends APIContract.RestrictIO<T, IO>>(api: T) {
       return APIContract.APIContract<T, IO, TransferFormat>(api, {
         serializer
       });

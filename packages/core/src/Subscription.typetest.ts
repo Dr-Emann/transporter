@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { Observable, of } from "./Observable/index.js";
-import { type Observer, Subscription } from "./Subscription.js";
+import { Future } from "./Future.js";
+import { Subscription, Observer } from "./Subscription.js";
 import { Fail } from "./Try.js";
 
 test("creating a subscription", () => {
@@ -105,6 +106,30 @@ test("a subscription that fails", () => {
 
   subscription;
   // ^? const subscription: (observer: Observer<number>) => Future<Subscription, "💩">
+});
+
+test("the Subscription type", () => {
+  const sub1 = Subscription(() => of(1));
+  const sub2 = Subscription((foo: number) => of(1));
+  const sub3 = (foo: number) => Future.resolve({ unsubscribe() {} });
+
+  type Test1 = typeof sub1 extends Subscription ? "Yes" : "No";
+  //   ^? type Test1 = "Yes"
+
+  type Test2 = typeof sub2 extends Subscription ? "Yes" : "No";
+  //   ^? type Test2 = "Yes"
+
+  type Test3 = typeof sub3 extends Subscription ? "Yes" : "No";
+  //   ^? type Test3 = "No"
+
+  // @ts-expect-error Type '[...unknown[], observer: Observer<any>]' is not assignable to type '[arg1: string]'.
+  const invalid1: Subscription = (arg1: string) => Future.resolve(/* ... */);
+
+  const valid0: Subscription = (arg1: string, observer: Observer<number>) =>
+    Future.resolve({ unsubscribe() {} });
+
+  const valid1: Subscription = (observer: Observer<string>) =>
+    Future.resolve({ unsubscribe() {} });
 });
 
 declare function test(message: string, callback: () => void): void;

@@ -2,10 +2,10 @@ import * as Subscription from "./Subscription.js";
 import * as Procedure from "./Procedure.js";
 
 type APIProxy<API> = {
-  [K in keyof API]: API[K] extends Subscription.Subscription<any>
-    ? API[K]
-    : API[K] extends Procedure.Procedure<any>
-      ? API[K]
+  [K in keyof API]: API[K] extends Subscription.Subscription
+    ? { subscribe: API[K] }
+    : API[K] extends Procedure.Procedure
+      ? { call: API[K] }
       : APIProxy<API[K]>;
 };
 
