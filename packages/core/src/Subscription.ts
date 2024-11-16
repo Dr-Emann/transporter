@@ -14,7 +14,7 @@ type ObservableType<T> = T extends Observable.Observable<infer V> ? V : never;
 
 type Subscription = JsFunction.Bivariant<
   (
-    ...args: [...unknown[], observer: Observer<any>]
+    ...args: [...unknown[], observer: Observer<never>]
   ) => Future.Future<Observable.Subscription, never>
 >;
 

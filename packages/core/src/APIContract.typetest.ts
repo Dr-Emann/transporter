@@ -11,46 +11,47 @@ test("creating an API contract", () => {
   });
 });
 
-test("a serializer is required if the IO type and transfer format are incompatible", () => {
-  const api = {
-    test: Procedure(() => "hi")
-  };
-
-  // @ts-expect-error Arguments for the rest parameter 'options' were not provided
-  APIContract<typeof api, Json, string>(api);
-
-  // OK
-  APIContract<typeof api, Json, Json>(api);
-});
-
 test("the API types must be compatible with the IO types", () => {
-  const api = {
+  const api1 = {
     test: Procedure(() => new Map<number, string>())
   };
 
   // @ts-expect-error Type 'Map<number, string>' is not assignable to type 'Json'.
-  APIContract<typeof api, Json, Json>(api);
+  APIContract<typeof api1, Json, Json>(api1);
+
+  const api2 = {
+    test: Subscription((foo: Map<string, number>) => of(12))
+  };
+
+  // @ts-expect-error Type 'Map<number, string>' is not assignable to type 'Json'.
+  APIContract<typeof api2, Json, Json>(api2);
+
+  const api3 = {
+    test2: Subscription((foo: { [key: string]: number }) => of(1)),
+    test: Procedure(() => "ok")
+  };
+
+  // OK
+  APIContract<typeof api3, Json, Json>(api3);
 });
 
 test("anything that is not a procedure or subscription is striped from the type", () => {
   const api = {
     bar: {
       baz: () => "😇",
-      test2: Subscription(() => of(12))
+      test2: Subscription((foo: string) => of(1))
     },
     foo: "👍",
     test: Procedure(() => "ok")
   };
 
   const contract = APIContract<typeof api, Json, Json>(api);
-
-  contract.api;
-  //       ^? (property) api: {
-  //            bar: {
-  //              test2: (observer: Observer<number>) => Future<Subscription, never>;
-  //            };
-  //            test: () => Future<string, never>;
-  //          }
+  //    ^? const contract: APIContract<{
+  //         bar: {
+  //           test2: (foo: string, observer: Observer<number>) => Future<Subscription, never>;
+  //         };
+  //         test: () => Future<string, never>;
+  //       }, Json, Json>
 });
 
 declare function test(message: string, callback: () => void): void;

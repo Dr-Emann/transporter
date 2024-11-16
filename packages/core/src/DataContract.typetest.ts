@@ -14,16 +14,9 @@ test("creating a data contract with an explicit IO type", () => {
   //    ^? const dataContract: DataContract<Json, Json>
 });
 
-test("creating a data contract with a serializer", () => {
-  const dataContract = DataContract({
-    serializer: {
-      serialize: (value: Json) => JSON.stringify(value),
-      deserialize: (value: string) => JSON.parse(value) as Json
-    }
-  });
-
-  dataContract;
-  // ^? const dataContract: DataContract<Json, string>
+test("creating a data contract with an explicit transfer format", () => {
+  const dataContract = DataContract<Json, string>();
+  //    ^? const dataContract: DataContract<Json, string>
 });
 
 test("restricting the IO parameters of a procedure", () => {

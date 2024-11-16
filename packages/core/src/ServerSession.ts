@@ -6,6 +6,7 @@ import * as JsObject from "./JsObject.js";
 import * as Message from "./Message.js";
 import * as Observable from "./Observable/index.js";
 import * as Procedure from "./Procedure.js";
+import * as Serializer from "./Serializer.js";
 import * as Subject from "./Subject.js";
 import * as Subscription from "./Subscription.js";
 import * as UUID from "./UUID.js";
@@ -74,16 +75,34 @@ type ServerSession<TransferFormat> = {
   _tag: "ServerSession";
 };
 
-const ServerSession = <TransferFormat>(
-  contract: APIContract.APIContract<any, any, TransferFormat>,
-  {
-    address = "",
-    injector
-  }: {
-    address?: string;
-    injector?: Injector.t;
-  } = {}
+type Options<IO, TransferFormat> = [IO] extends [TransferFormat]
+  ? {
+      address?: string;
+      injector?: Injector.t;
+    }
+  : {
+      address?: string;
+      injector?: Injector.t;
+      serializer: Serializer.Serializer<IO, TransferFormat>;
+    };
+
+const ServerSession = <IO, TransferFormat>(
+  contract: APIContract.APIContract<unknown, IO, TransferFormat>,
+  ...options: [IO] extends [TransferFormat]
+    ? [Options<IO, TransferFormat>?]
+    : [Options<IO, TransferFormat>]
 ): ServerSession<TransferFormat> => {
+  const [
+    {
+      address = "",
+      injector,
+      serializer = Serializer.identity as Serializer.Serializer<
+        IO,
+        TransferFormat
+      >
+    } = {}
+  ] = options as [Options<unknown, never>?];
+
   const messageQueue = Subject.init<TransferFormat>();
   const subscriptions = new Map<
     string,
@@ -227,7 +246,7 @@ const ServerSession = <TransferFormat>(
               subscriptions.delete(subscriptionId);
 
               messageQueue.next(
-                contract.serializer.serialize(
+                serializer.serialize(
                   Message.ObserverComplete({
                     address: message.returnAddress,
                     returnAddress: address,
@@ -242,7 +261,7 @@ const ServerSession = <TransferFormat>(
               subscriptions.delete(subscriptionId);
 
               messageQueue.next(
-                contract.serializer.serialize(
+                serializer.serialize(
                   Message.ObserverError({
                     address: message.returnAddress,
                     error,
@@ -256,7 +275,7 @@ const ServerSession = <TransferFormat>(
           next: (value) =>
             subscribePromise.then((subscriptionId) =>
               messageQueue.next(
-                contract.serializer.serialize(
+                serializer.serialize(
                   Message.ObserverNext({
                     address: message.returnAddress,
                     returnAddress: address,
@@ -303,20 +322,20 @@ const ServerSession = <TransferFormat>(
   };
 
   const send = (message: TransferFormat) => {
-    const value = contract.serializer.deserialize(message);
+    const value = serializer.deserialize(message);
 
     if (Message.isMessage(value) && value.address === address)
       handleMessage(value).then((message) =>
-        messageQueue.next(contract.serializer.serialize(message))
+        messageQueue.next(serializer.serialize(message))
       );
   };
 
   const sendAwait = (message: TransferFormat) => {
-    const value = contract.serializer.deserialize(message);
+    const value = serializer.deserialize(message);
 
     if (Message.isMessage(value) && value.address === address)
       return handleMessage(value).then((message) =>
-        contract.serializer.serialize(message)
+        serializer.serialize(message)
       );
 
     return Promise.resolve();

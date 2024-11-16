@@ -3,35 +3,22 @@ import * as JsFunction from "./JsFunction.js";
 import * as JsObject from "./JsObject.js";
 import * as Observable from "./Observable/Observable.js";
 import * as Procedure from "./Procedure.js";
-import * as Serializer from "./Serializer.js";
 import * as Subscription from "./Subscription.js";
 
 type RestrictIO<T, IO> = {
   [K in keyof T]: T[K] extends Subscription.Subscription
-    ? (
-        ...args: [...IO[], observer: Subscription.Observer<IO>]
-      ) => Future.Future<Observable.Subscription, IO>
+    ? JsFunction.Bivariant<
+        (
+          ...args: [
+            ...IO[],
+            observer: Subscription.Observer<never> & Subscription.Observer<IO>
+          ]
+        ) => Future.Future<Observable.Subscription, never>
+      >
     : T[K] extends Procedure.Procedure
       ? JsFunction.Bivariant<(...args: IO[]) => Future.Future<IO, IO>>
-      : T[K] extends Record<PropertyKey, unknown>
-        ? RestrictIO<T[K], IO>
-        : T[K];
+      : RestrictIO<T[K], IO>;
 };
-
-// type ExtractIO<T> = T extends Subscription.Subscription<infer I>
-//   ? I
-//   : T extends Procedure.Procedure<infer F>
-//     ? F extends (...input: infer I) => Promise<infer O>
-//       ? I[number] | O
-//       : never
-//     : never;
-
-// type InferIO<T> = ExtractIO<
-//   JsObject.ExtractDeep<
-//     T,
-//     Subscription.Subscription<any> | Procedure.Procedure<any>
-//   >
-// >;
 
 type Infer<
   Contract,
@@ -45,38 +32,23 @@ type Opaque<T> = JsObject.PickDeep<
   Procedure.Procedure | Subscription.Subscription
 >;
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 type APIContract<T, IO, TransferFormat> = {
-  api: Opaque<T>;
-  serializer: Serializer.Serializer<IO, TransferFormat>;
+  api: T;
   _tag: "APIContract";
 };
 
-type Options<IO, TransferFormat> = {
-  serializer: Serializer.Serializer<IO, TransferFormat>;
-};
-
 const APIContract = <
-  const T extends RestrictIO<T, IO>,
+  const T extends RestrictIO<Opaque<T>, IO>,
   const IO,
   const TransferFormat
 >(
-  api: T,
-  ...options: [IO] extends [TransferFormat] ? [] : [Options<IO, TransferFormat>]
-): APIContract<T, IO, TransferFormat> => {
-  const [
-    {
-      serializer = Serializer.identity as Serializer.Serializer<
-        IO,
-        TransferFormat
-      >
-    } = {} as Options<IO, TransferFormat>
-  ] = options;
-
+  api: T
+): APIContract<Opaque<T>, IO, TransferFormat> => {
   return {
     api: api as Opaque<T>,
-    serializer,
     _tag: "APIContract"
   };
 };
 
-export { type Infer, type Options, type RestrictIO, APIContract };
+export { type Infer, type Opaque, type RestrictIO, APIContract };
