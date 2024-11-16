@@ -95,4 +95,13 @@ test("restricting the IO parameters of a generic procedure", () => {
   Procedure(<T extends Map<string, number>>(foo: T) => Succeed("hi"));
 });
 
+test("API contract type", () => {
+  const { Procedure, APIContract } = DataContract<Json>();
+
+  const contract = APIContract({ test: Procedure(() => 12) });
+  //     ^? const contract: APIContract<{
+  //          test: () => Future<number, never>;
+  //        }, Json, Json>
+});
+
 declare function test(message: string, callback: () => void): void;

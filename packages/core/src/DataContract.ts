@@ -23,7 +23,7 @@ type DataContract<IO, TransferFormat> = {
   >(
     procedure: (...args: Args) => Return
   ): (
-    ...args: Args
+    ...args: [...Args]
   ) => Future.Future<
     Procedure.SuccessType<Return>,
     Procedure.FailureType<Return>

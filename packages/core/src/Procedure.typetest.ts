@@ -124,4 +124,22 @@ test("isProcedure performs lossless type narrowing", () => {
   }
 });
 
+test("the Procedure type", () => {
+  const sub1 = Procedure(() => 1);
+  const sub2 = Procedure((foo: number) => 1);
+  const sub3 = (foo: number) => Promise.resolve(1);
+
+  type Test1 = typeof sub1 extends Procedure ? "Yes" : "No";
+  //   ^? type Test1 = "Yes"
+
+  type Test2 = typeof sub2 extends Procedure ? "Yes" : "No";
+  //   ^? type Test2 = "Yes"
+
+  type Test3 = typeof sub3 extends Procedure ? "Yes" : "No";
+  //   ^? type Test3 = "No"
+
+  const valid0: Procedure = (arg1: string) => Future.resolve(1);
+  const valid1: Procedure = () => Future.resolve(1);
+});
+
 declare function test(message: string, callback: () => void): void;

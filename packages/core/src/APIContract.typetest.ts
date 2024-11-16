@@ -6,9 +6,10 @@ import { Procedure } from "./Procedure.js";
 import { Subscription } from "./Subscription.js";
 
 test("creating an API contract", () => {
-  APIContract({
-    test: Procedure(() => "hi")
-  });
+  const contract = APIContract({ test: Procedure(() => "hi") });
+  //    ^? const contract: APIContract<{
+  //         readonly test: () => Future<string, never>;
+  //       }, unknown, unknown>
 });
 
 test("the API types must be compatible with the IO types", () => {
