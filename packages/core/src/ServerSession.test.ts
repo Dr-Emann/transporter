@@ -386,7 +386,7 @@ test("a subscription that errors", async () => {
   );
 });
 
-test("returning an error from a subscription", async () => {
+test("a subscription that throws", async () => {
   const { Subscription, APIContract } = DataContract.DataContract();
 
   const test = Subscription(() => {

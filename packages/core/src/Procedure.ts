@@ -33,16 +33,18 @@ const Procedure = <const Args extends readonly unknown[], const Return>(
 ) => Future.Future<SuccessType<Return>, FailureType<Return>>) => {
   return Object.assign(
     Injector.provide(Injector.getTags(procedure), (...args: [...Args]) =>
-      Future.Future.resolve(procedure(...args)).then((value) => {
-        switch (true) {
-          case Try.isFail(value):
-            return Future.Future.reject(value.reason as FailureType<Return>);
-          case Try.isSucceed(value):
-            return value.value as SuccessType<Return>;
-          default:
-            return value as SuccessType<Return>;
+      new Future.Future<Return>((resolve) => resolve(procedure(...args))).then(
+        (value) => {
+          switch (true) {
+            case Try.isFail(value):
+              return Future.Future.reject(value.reason as FailureType<Return>);
+            case Try.isSucceed(value):
+              return value.value as SuccessType<Return>;
+            default:
+              return value as SuccessType<Return>;
+          }
         }
-      })
+      )
     ),
     { [type]: TYPE }
   );
