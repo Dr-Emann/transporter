@@ -106,18 +106,10 @@ export function provide<
   tags: Tags,
   func: (...args: Args) => Return
 ): (...args: JsArray.DropFirst<Args, JsArray.Length<Tags>>) => Return {
-  return new Proxy(func, {
-    get(target, prop, receiver) {
-      if (prop === inject) return tags;
-      return Reflect.get(target, prop, receiver);
-    },
-    getOwnPropertyDescriptor(target, prop) {
-      if (prop === inject) return { configurable: true };
-      return Reflect.getOwnPropertyDescriptor(target, prop);
-    },
-    has(target, prop) {
-      if (prop === inject) return true;
-      return Reflect.has(target, prop);
-    }
-  }) as (...args: JsArray.DropFirst<Args, JsArray.Length<Tags>>) => Return;
+  return Object.assign(
+    ((...args: Args) => func(...args)) as (
+      ...args: JsArray.DropFirst<Args, JsArray.Length<Tags>>
+    ) => Return,
+    { [inject]: tags }
+  );
 }

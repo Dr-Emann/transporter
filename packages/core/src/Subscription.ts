@@ -1,4 +1,5 @@
 import * as Future from "./Future.js";
+import * as Injector from "./Injector.js";
 import * as JsFunction from "./JsFunction.js";
 import * as JsObject from "./JsObject.js";
 import * as Observable from "./Observable/index.js";
@@ -34,31 +35,30 @@ const Subscription = <
     observer: Observer<ObservableType<Procedure.SuccessType<Return>>>
   ]
 ) => Future.Future<Observable.Subscription, Procedure.FailureType<Return>>) => {
-  return (
-    ...args: [
-      ...Args,
-      observer: Observer<ObservableType<Procedure.SuccessType<Return>>>
-    ]
-  ) => {
-    const params = args.slice(0, -1) as unknown as Args;
-    const observer = args.at(-1) as Observer<
-      ObservableType<Procedure.SuccessType<Return>>
-    >;
+  return Object.assign(
+    Injector.provide(
+      Injector.getTags(subscription),
+      (
+        ...args: [
+          ...Args,
+          observer: Observer<ObservableType<Procedure.SuccessType<Return>>>
+        ]
+      ) => {
+        const params = args.slice(0, -1) as unknown as Args;
+        const observer = args.at(-1) as Observer<
+          ObservableType<Procedure.SuccessType<Return>>
+        >;
 
-    return Procedure.Procedure(subscription)(...params).then((observable) => {
-      if (!isObservable(observable)) throw new Error();
-      return observable.subscribe(observer as Observer<unknown>);
-    });
-  };
-};
-
-const isObservable = (
-  value: unknown
-): value is Observable.ObservableLike<unknown> => {
-  return (
-    JsObject.isObject(value) &&
-    JsObject.has(value, "subscribe") &&
-    JsFunction.isFunction(value.subscribe)
+        return Procedure.Procedure(subscription)(...params).then(
+          (observable) => {
+            return (observable as Observable.Observable<unknown>).subscribe(
+              observer as Observer<unknown>
+            );
+          }
+        );
+      }
+    ),
+    { [type]: TYPE }
   );
 };
 

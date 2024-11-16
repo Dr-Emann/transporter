@@ -143,17 +143,21 @@ test("sending a message without awaiting the response pushes the message onto th
 });
 
 test("using a serializer", async () => {
+  const { Procedure, APIContract } = DataContract.DataContract<
+    Json.t,
+    string
+  >();
+
   const serializer = {
     serialize: (value: Json.t) => JSON.stringify(value),
     deserialize: (value: string) => JSON.parse(value) as Json.t
   };
 
-  const { Procedure, APIContract } = DataContract.DataContract({ serializer });
-
   const session = ServerSession.ServerSession(
     APIContract({
       test: Procedure(async () => "👍")
-    })
+    }),
+    { serializer }
   );
 
   const message = await session.sendAwait(
@@ -183,10 +187,9 @@ test("using a serializer", async () => {
 test("subscribing to a subscription puts an ObserverNext message on the messageQueue when a value is emitted", async () => {
   const { Subscription, APIContract } = DataContract.DataContract();
 
-  const test = Subscription(async (observer: Subscription.Observer<string>) => {
-    observer.next?.("🤘");
-    return { async unsubscribe() {} };
-  });
+  const test = Subscription(
+    () => new Observable.Observable(({ next }) => next?.("🤘"))
+  );
 
   const session = ServerSession.ServerSession(APIContract({ test }));
   const next = mock();
@@ -219,15 +222,15 @@ test("subscribing to a subscription puts an ObserverNext message on the messageQ
 test("terminating a session unsubscribes from all subscriptions", async () => {
   const { Subscription, APIContract } = DataContract.DataContract();
 
-  const test = Subscription(async (observer: Subscription.Observer<string>) => {
-    const subscription = Observable.of("🤘").subscribe(observer);
-    return { unsubscribe: async () => subscription.unsubscribe() };
+  const unsubscribe = mock();
+
+  const test = Subscription(() => {
+    return new Observable.Observable(() => {
+      return unsubscribe;
+    });
   });
 
   const session = ServerSession.ServerSession(APIContract({ test }));
-  const spy = spyOn(test, "subscribe");
-  const unsubscribe = mock(async () => {});
-  spy.mockImplementation(async () => ({ unsubscribe }));
 
   await session.sendAwait(
     Message.Subscribe({
@@ -246,11 +249,7 @@ test("terminating a session unsubscribes from all subscriptions", async () => {
 test.skip("subscribing multiple times does not create multiple subscriptions", async () => {
   const { Subscription, APIContract } = DataContract.DataContract();
 
-  const test = Subscription(async (observer: Subscription.Observer<string>) => {
-    const subscription = Observable.of("🤘").subscribe(observer);
-    return { unsubscribe: async () => subscription.unsubscribe() };
-  });
-
+  const test = Subscription(() => Observable.of("🤘"));
   const session = ServerSession.ServerSession(APIContract({ test }));
   const next = mock();
 
@@ -275,11 +274,7 @@ test("unsubscribing terminates the subscription", async () => {
   const { Subscription, APIContract } = DataContract.DataContract();
   const subject = Subject.init<string>();
 
-  const test = Subscription(async (observer: Subscription.Observer<string>) => {
-    const subscription = subject.asObservable().subscribe(observer);
-    return { unsubscribe: async () => subscription.unsubscribe() };
-  });
-
+  const test = Subscription(async () => subject.asObservable());
   const session = ServerSession.ServerSession(APIContract({ test }));
   const next = mock();
 
@@ -321,9 +316,10 @@ test("unsubscribing terminates the subscription", async () => {
 test("a subscription that completes", async () => {
   const { Subscription, APIContract } = DataContract.DataContract();
 
-  const test = Subscription(async (observer: Subscription.Observer<string>) => {
-    observer.complete?.();
-    return { async unsubscribe() {} };
+  const test = Subscription(() => {
+    return new Observable.Observable((observer) => {
+      observer.complete?.();
+    });
   });
 
   const session = ServerSession.ServerSession(APIContract({ test }));
@@ -356,9 +352,10 @@ test("a subscription that completes", async () => {
 test("a subscription that errors", async () => {
   const { Subscription, APIContract } = DataContract.DataContract();
 
-  const test = Subscription(async (observer: Subscription.Observer<string>) => {
-    observer.error?.("💣");
-    return { async unsubscribe() {} };
+  const test = Subscription(() => {
+    return new Observable.Observable((observer) => {
+      observer.error?.("💣");
+    });
   });
 
   const session = ServerSession.ServerSession(APIContract({ test }));
@@ -392,12 +389,9 @@ test("a subscription that errors", async () => {
 test("returning an error from a subscription", async () => {
   const { Subscription, APIContract } = DataContract.DataContract();
 
-  const test = Subscription(
-    async (_observer: Subscription.Observer<string>) => {
-      throw "💣";
-      return { async unsubscribe() {} };
-    }
-  );
+  const test = Subscription(() => {
+    throw "💣";
+  });
 
   const session = ServerSession.ServerSession(APIContract({ test }));
   const next = mock();
@@ -473,13 +467,10 @@ test("using dependency injection with a subscription", async () => {
 
   const injector = Injector.empty().add(Rocket, rocket);
 
-  const subscription = Injector.provide(
-    [Rocket],
-    async (rocket: Rocket, _observer: Subscription.Observer<string>) => {
-      rocket.blastoff();
-      return { unsubscribe: async () => {} };
-    }
-  );
+  const subscription = Injector.provide([Rocket], async (rocket: Rocket) => {
+    rocket.blastoff();
+    return Observable.of(1);
+  });
 
   const session = ServerSession.ServerSession(
     APIContract({
@@ -739,16 +730,12 @@ test("an error is returned if the wrong message type is received", async () => {
 test("sending a batch message", async () => {
   const { Subscription, APIContract } = DataContract.DataContract();
 
-  const sub1 = Subscription(async (observer: Subscription.Observer<string>) => {
-    observer.next?.("🤘");
-    return { async unsubscribe() {} };
-  });
-
-  const sub2 = Subscription(async (observer: Subscription.Observer<string>) => {
-    observer.next?.("💩");
-    return { async unsubscribe() {} };
-  });
-
+  const sub1 = Subscription(
+    () => new Observable.Observable(({ next }) => next?.("🤘"))
+  );
+  const sub2 = Subscription(
+    () => new Observable.Observable(({ next }) => next?.("💩"))
+  );
   const session = ServerSession.ServerSession(APIContract({ sub1, sub2 }));
   const next = mock();
 

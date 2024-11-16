@@ -1,11 +1,12 @@
 import * as JsObject from "./JsObject.js";
 import * as Try from "./Try.js";
 import * as Future from "./Future.js";
+import * as Injector from "./Injector.js";
 
 const TYPE = "Procedure";
 const type = Symbol.for(TYPE);
 
-type Procedure = (...args: never[]) => Future.Future<unknown, never>;
+type Procedure = (...args: unknown[]) => Future.Future<unknown, never>;
 
 type FailureType<Return> = Return extends Future.Future<unknown, infer E>
   ? E
@@ -28,10 +29,10 @@ type SuccessType<Return> = Return extends Future.Future<infer V>
 const Procedure = <const Args extends readonly unknown[], const Return>(
   procedure: (...args: Args) => Return
 ): ((
-  ...args: Args
+  ...args: [...Args]
 ) => Future.Future<SuccessType<Return>, FailureType<Return>>) => {
   return Object.assign(
-    (...args: Args) =>
+    Injector.provide(Injector.getTags(procedure), (...args: [...Args]) =>
       Future.Future.resolve(procedure(...args)).then((value) => {
         switch (true) {
           case Try.isFail(value):
@@ -41,7 +42,8 @@ const Procedure = <const Args extends readonly unknown[], const Return>(
           default:
             return value as SuccessType<Return>;
         }
-      }),
+      })
+    ),
     { [type]: TYPE }
   );
 };

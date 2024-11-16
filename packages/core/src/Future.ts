@@ -6,13 +6,13 @@ class Future<T = void, E = never> extends Promise<T> {
 
   static reject<E>(reason?: E): Future<never, E> {
     const promise = Promise.reject(reason);
-    Object.setPrototypeOf(promise, Future);
+    Object.setPrototypeOf(promise, Future.prototype);
     return promise as Future<never, E>;
   }
 
   static resolve<T>(value?: PromiseLike<T> | T): Future<T, never> {
     const promise = Promise.resolve(value);
-    Object.setPrototypeOf(promise, Future);
+    Object.setPrototypeOf(promise, Future.prototype);
     return promise as Future<T>;
   }
 

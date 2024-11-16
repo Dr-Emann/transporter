@@ -75,22 +75,20 @@ type ServerSession<TransferFormat> = {
   _tag: "ServerSession";
 };
 
-type Options<IO, TransferFormat> = [IO] extends [TransferFormat]
-  ? {
-      address?: string;
-      injector?: Injector.t;
-    }
-  : {
-      address?: string;
-      injector?: Injector.t;
-      serializer: Serializer.Serializer<IO, TransferFormat>;
-    };
+interface Options {
+  address?: string;
+  injector?: Injector.t;
+}
+
+interface OptionsWithSerializer<IO, TransferFormat> extends Options {
+  serializer: Serializer.Serializer<IO, TransferFormat>;
+}
 
 const ServerSession = <IO, TransferFormat>(
   contract: APIContract.APIContract<unknown, IO, TransferFormat>,
   ...options: [IO] extends [TransferFormat]
-    ? [Options<IO, TransferFormat>?]
-    : [Options<IO, TransferFormat>]
+    ? [Options?]
+    : [OptionsWithSerializer<IO, TransferFormat>]
 ): ServerSession<TransferFormat> => {
   const [
     {
@@ -101,13 +99,10 @@ const ServerSession = <IO, TransferFormat>(
         TransferFormat
       >
     } = {}
-  ] = options as [Options<unknown, never>?];
+  ] = options as [OptionsWithSerializer<IO, TransferFormat>?];
 
   const messageQueue = Subject.init<TransferFormat>();
-  const subscriptions = new Map<
-    string,
-    { unsubscribe: Subscription.Unsubscribe }
-  >();
+  const subscriptions = new Map<string, Observable.Subscription>();
   const stateChange = Subject.init<State>();
   let state = State.Active;
 
@@ -120,7 +115,7 @@ const ServerSession = <IO, TransferFormat>(
   }: {
     args: unknown[];
     path: string[];
-  }): Promise<TransferFormat> => {
+  }) => {
     const procedure = JsObject.getIn(contract.api, path);
 
     if (!Procedure.isProcedure(procedure))
@@ -128,8 +123,8 @@ const ServerSession = <IO, TransferFormat>(
         TypeError(`The value at path '${path.join(".")}' is not a procedure.`)
       );
 
-    const dependencies = getDependencies(procedure.call);
-    return procedure.call(...dependencies, ...args);
+    const dependencies = getDependencies(procedure);
+    return procedure(...dependencies, ...args);
   };
 
   const createSubscription = (
@@ -146,15 +141,15 @@ const ServerSession = <IO, TransferFormat>(
         )
       );
 
-    const dependencies = getDependencies(subscription.subscribe);
+    const dependencies = getDependencies(subscription);
 
-    return subscription
-      .subscribe(...dependencies, ...args, observer)
-      .then((subscription) => {
+    return subscription(...dependencies, ...args, observer).then(
+      (subscription) => {
         const subscriptionId = UUID.v4();
         subscriptions.set(subscriptionId, subscription);
         return subscriptionId;
-      });
+      }
+    );
   };
 
   const handleMessage = async (
@@ -251,7 +246,7 @@ const ServerSession = <IO, TransferFormat>(
                     address: message.returnAddress,
                     returnAddress: address,
                     subscriptionId
-                  })
+                  }) as IO
                 )
               );
             });
@@ -267,7 +262,7 @@ const ServerSession = <IO, TransferFormat>(
                     error,
                     returnAddress: address,
                     subscriptionId
-                  })
+                  }) as IO
                 )
               );
             });
@@ -281,7 +276,7 @@ const ServerSession = <IO, TransferFormat>(
                     returnAddress: address,
                     subscriptionId,
                     value
-                  })
+                  }) as IO
                 )
               )
             )
@@ -326,7 +321,7 @@ const ServerSession = <IO, TransferFormat>(
 
     if (Message.isMessage(value) && value.address === address)
       handleMessage(value).then((message) =>
-        messageQueue.next(serializer.serialize(message))
+        messageQueue.next(serializer.serialize(message as IO))
       );
   };
 
@@ -335,7 +330,7 @@ const ServerSession = <IO, TransferFormat>(
 
     if (Message.isMessage(value) && value.address === address)
       return handleMessage(value).then((message) =>
-        serializer.serialize(message)
+        serializer.serialize(message as IO)
       );
 
     return Promise.resolve();
